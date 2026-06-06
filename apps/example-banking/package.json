@@ -1,0 +1,24 @@
+{
+	"name": "example-banking",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@ogerjs/audit-log": "workspace:*",
+		"@ogerjs/bearer": "workspace:*",
+		"@ogerjs/core": "workspace:*",
+		"@ogerjs/cors": "workspace:*",
+		"@ogerjs/health": "workspace:*",
+		"@ogerjs/helmet": "workspace:*",
+		"@ogerjs/idempotency": "workspace:*",
+		"@ogerjs/jwt": "workspace:*",
+		"@ogerjs/logger": "workspace:*",
+		"@ogerjs/rate-limit": "workspace:*",
+		"@ogerjs/request-id": "workspace:*",
+		"@ogerjs/ws": "workspace:*"
+	},
+	"scripts": {
+		"start": "bun run src/index.ts",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit -p tsconfig.json"
+	}
+}

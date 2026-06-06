@@ -1,0 +1,75 @@
+{
+	"name": "@ogerjs/testing",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"dependencies": {
+		"@ogerjs/core": "workspace:*"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"build": "bun run ../../scripts/build.ts",
+		"test": "bun test"
+	},
+	"types": "./dist/index.d.ts",
+	"devDependencies": {
+		"@ogerjs/api-key": "workspace:*",
+		"@ogerjs/basic-auth": "workspace:*",
+		"@ogerjs/bearer": "workspace:*",
+		"@ogerjs/body-limit": "workspace:*",
+		"@ogerjs/compat": "workspace:*",
+		"@ogerjs/compress": "workspace:*",
+		"@ogerjs/cookie": "workspace:*",
+		"@ogerjs/core": "workspace:*",
+		"@ogerjs/cors": "workspace:*",
+		"@ogerjs/csrf": "workspace:*",
+		"@ogerjs/etag": "workspace:*",
+		"@ogerjs/events": "workspace:*",
+		"@ogerjs/health": "workspace:*",
+		"@ogerjs/helmet": "workspace:*",
+		"@ogerjs/html": "workspace:*",
+		"@ogerjs/json": "workspace:*",
+		"@ogerjs/jwt": "workspace:*",
+		"@ogerjs/logger": "workspace:*",
+		"@ogerjs/rate-limit": "workspace:*",
+		"@ogerjs/sse": "workspace:*",
+		"@ogerjs/static": "workspace:*",
+		"@ogerjs/stream": "workspace:*",
+		"@ogerjs/upload": "workspace:*",
+		"@ogerjs/ws": "workspace:*"
+	},
+	"author": "Ogulcan Studio",
+	"license": "MIT",
+	"homepage": "https://ogulcan.studio",
+	"bugs": {
+		"url": "https://github.com/OgulcanStudio/OgerJS/issues",
+		"email": "npm@ogulcan.studio"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/OgulcanStudio/OgerJS.git"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"files": [
+		"dist"
+	],
+	"description": "In-process inject() and benchRoute() utilities for OgerJS.",
+	"keywords": [
+		"ogerjs",
+		"bun",
+		"http",
+		"typescript",
+		"framework",
+		"plugin",
+		"testing"
+	]
+}

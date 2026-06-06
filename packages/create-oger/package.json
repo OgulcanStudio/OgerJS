@@ -1,0 +1,54 @@
+{
+	"name": "create-oger",
+	"version": "0.1.0",
+	"type": "module",
+	"bin": {
+		"create-oger": "./dist/cli.js",
+		"oger-doctor": "./dist/doctor.js",
+		"ogerjs": "./dist/cli.js"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"build": "bun run ../../scripts/build.ts"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"devDependencies": {
+		"@ogerjs/testing": "workspace:*"
+	},
+	"author": "Ogulcan Studio",
+	"license": "MIT",
+	"homepage": "https://ogulcan.studio",
+	"bugs": {
+		"url": "https://github.com/OgulcanStudio/OgerJS/issues",
+		"email": "npm@ogulcan.studio"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/OgulcanStudio/OgerJS.git"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"files": [
+		"dist"
+	],
+	"description": "Scaffold a new OgerJS API project in seconds.",
+	"keywords": [
+		"ogerjs",
+		"bun",
+		"http",
+		"typescript",
+		"framework",
+		"cli",
+		"scaffold",
+		"create-app"
+	]
+}

@@ -1,0 +1,12 @@
+{
+	"name": "bench",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@ogerjs/core": "workspace:*"
+	},
+	"scripts": {
+		"start": "bun run src/bench.ts",
+		"typecheck": "tsc --noEmit -p tsconfig.json"
+	}
+}

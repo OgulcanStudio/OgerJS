@@ -1,14 +1,8 @@
-import { spawn } from "node:child_process";
-import {
-	cpSync,
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { execSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { NPM_FRAMEWORK_PACKAGE, NPM_PUBLISHER } from "./npm-registry-names";
+import { stageOgerjsBundle } from "./stage-ogerjs-bundle";
 
 const PACKAGES_ROOT = join(import.meta.dir, "../packages");
 const STAGING_ROOT = join(import.meta.dir, "../.publish-staging");
@@ -26,84 +20,32 @@ function run(cmd: string, args: string[], cwd: string): Promise<void> {
 	});
 }
 
-function sortPackages(
-	packages: Record<string, { dir: string; deps: string[] }>,
-): string[] {
-	const visited = new Set<string>();
-	const temp = new Set<string>();
-	const order: string[] = [];
-
-	function visit(name: string) {
-		if (temp.has(name)) {
-			throw new Error(`Circular dependency: ${name}`);
-		}
-		if (visited.has(name)) return;
-		temp.add(name);
-		const pkg = packages[name];
-		if (pkg) {
-			for (const dep of pkg.deps) {
-				if (packages[dep]) visit(dep);
-			}
-		}
-		temp.delete(name);
-		visited.add(name);
-		order.push(name);
+function assertNpmPublisher() {
+	let whoami: string;
+	try {
+		whoami = execSync("npm whoami", { encoding: "utf8" }).trim();
+	} catch {
+		throw new Error(
+			`Not logged in to npm. Run: npm login  (publish as ${NPM_PUBLISHER})`,
+		);
 	}
-
-	for (const name of Object.keys(packages)) visit(name);
-	return order;
-}
-
-function resolveWorkspaceDeps(
-	deps: Record<string, string> | undefined,
-	version: string,
-): Record<string, string> | undefined {
-	if (!deps) return deps;
-	const out: Record<string, string> = {};
-	for (const [name, range] of Object.entries(deps)) {
-		out[name] = range === "workspace:*" ? `^${version}` : range;
+	if (whoami !== NPM_PUBLISHER) {
+		throw new Error(
+			`Expected npm user "${NPM_PUBLISHER}", got "${whoami}". Packages publish to https://www.npmjs.com/~${NPM_PUBLISHER}`,
+		);
 	}
-	return out;
-}
-
-function stagePackage(dir: string, pkg: Record<string, unknown>): string {
-	const srcDir = join(PACKAGES_ROOT, dir);
-	const destDir = join(STAGING_ROOT, dir);
-	rmSync(destDir, { recursive: true, force: true });
-	mkdirSync(destDir, { recursive: true });
-	cpSync(join(srcDir, "dist"), join(destDir, "dist"), { recursive: true });
-	const scripts = { ...(pkg.scripts as Record<string, string> | undefined) };
-	delete scripts.prepublishOnly;
-	const publishable = {
-		...pkg,
-		scripts,
-		dependencies: resolveWorkspaceDeps(
-			pkg.dependencies as Record<string, string> | undefined,
-			String(pkg.version),
-		),
-		peerDependencies: resolveWorkspaceDeps(
-			pkg.peerDependencies as Record<string, string> | undefined,
-			String(pkg.version),
-		),
-		devDependencies: undefined,
-	};
-	writeFileSync(
-		join(destDir, "package.json"),
-		`${JSON.stringify(publishable, null, "\t")}\n`,
-	);
-	const license = join(import.meta.dir, "../LICENSE");
-	if (existsSync(license)) {
-		cpSync(license, join(destDir, "LICENSE"));
-	}
-	return destDir;
 }
 
 async function main() {
 	console.log(
 		DRY_RUN
-			? "Dry run — pass --yes to publish to npm (requires npm login as ogulcanstudio)\n"
-			: "Publishing to npm registry as Ogulcan Studio…\n",
+			? `Dry run — pass --yes to publish ${NPM_FRAMEWORK_PACKAGE} to npm (login: ${NPM_PUBLISHER})\n`
+			: `Publishing ${NPM_FRAMEWORK_PACKAGE} to npm as ${NPM_PUBLISHER} (Ogulcan Studio)…\n`,
 	);
+
+	if (!DRY_RUN) {
+		assertNpmPublisher();
+	}
 
 	if (!SKIP_STAMP) {
 		await run("bun", ["run", "scripts/stamp-npm-meta.ts"], join(import.meta.dir, ".."));
@@ -112,54 +54,29 @@ async function main() {
 		await run("bun", ["run", "build"], join(import.meta.dir, ".."));
 	}
 
+	const cliDist = join(PACKAGES_ROOT, "create-oger", "dist");
+	if (!existsSync(cliDist)) {
+		throw new Error("Missing build output: packages/create-oger/dist");
+	}
+
 	rmSync(STAGING_ROOT, { recursive: true, force: true });
 	mkdirSync(STAGING_ROOT, { recursive: true });
 
-	const packages: Record<string, { dir: string; deps: string[] }> = {};
-	for (const entry of readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
-		if (!entry.isDirectory()) continue;
-		const pkgJsonPath = join(PACKAGES_ROOT, entry.name, "package.json");
-		if (!existsSync(pkgJsonPath)) continue;
-		const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as {
-			name?: string;
-			version?: string;
-			dependencies?: Record<string, string>;
-			peerDependencies?: Record<string, string>;
-		};
-		if (!pkg.name || !pkg.version) continue;
-		const deps = [
-			...Object.keys(pkg.dependencies ?? {}),
-			...Object.keys(pkg.peerDependencies ?? {}),
-		].filter((d) => d.startsWith("@ogerjs/"));
-		packages[pkg.name] = { dir: entry.name, deps };
-	}
+	const stagedDir = stageOgerjsBundle();
+	const { version } = JSON.parse(
+		readFileSync(join(PACKAGES_ROOT, "core", "package.json"), "utf8"),
+	) as { version: string };
 
-	const order = sortPackages(packages);
-	for (const name of order) {
-		const { dir } = packages[name]!;
-		const pkgJsonPath = join(PACKAGES_ROOT, dir, "package.json");
-		const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as Record<
-			string,
-			unknown
-		>;
-		const distDir = join(PACKAGES_ROOT, dir, "dist");
-		if (!existsSync(distDir)) {
-			console.warn(`Skipping ${name}: missing dist/`);
-			continue;
-		}
-
-		const staged = stagePackage(dir, pkg);
-		const args = DRY_RUN ? ["publish", "--dry-run"] : ["publish", "--access", "public"];
-		console.log(`\n→ ${name}@${pkg.version}`);
-		await run("npm", args, staged);
-	}
+	const args = DRY_RUN ? ["publish", "--dry-run"] : ["publish"];
+	console.log(`\n→ ${NPM_FRAMEWORK_PACKAGE}@${version}`);
+	await run("npm", args, stagedDir);
 
 	rmSync(STAGING_ROOT, { recursive: true, force: true });
 
 	console.log(
 		DRY_RUN
-			? "\nDry run complete. Login: npm login  then  bun run publish:packages -- --yes"
-			: "\nAll packages published.",
+			? `\nDry run complete. Login: npm login  then  bun run publish:packages -- --yes`
+			: `\nPublished ${NPM_FRAMEWORK_PACKAGE}@${version} to https://www.npmjs.com/package/${NPM_FRAMEWORK_PACKAGE}`,
 	);
 }
 

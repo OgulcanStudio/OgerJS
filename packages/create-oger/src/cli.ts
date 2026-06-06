@@ -17,12 +17,11 @@ const TEMPLATES: Record<
 	api: {
 		pkg: {
 			dependencies: {
-				"@ogerjs/core": "^0.1.0",
-				"@ogerjs/health": "^0.1.0",
+				ogerjs: "^0.1.2",
 			},
 		},
-		index: `import { Oger, t } from "@ogerjs/core";
-import { health } from "@ogerjs/health";
+		index: `import { Oger, t } from "ogerjs";
+import { health } from "ogerjs/health";
 
 const app = new Oger()
   .use(health())
@@ -38,14 +37,12 @@ console.log(\`OgerJS listening on http://localhost:\${app.port ?? 3000}\`);
 	auth: {
 		pkg: {
 			dependencies: {
-				"@ogerjs/core": "^0.1.0",
-				"@ogerjs/jwt": "^0.1.0",
-				"@ogerjs/bearer": "^0.1.0",
+				ogerjs: "^0.1.2",
 			},
 		},
-		index: `import { Oger, t } from "@ogerjs/core";
-import { jwt } from "@ogerjs/jwt";
-import { bearer } from "@ogerjs/bearer";
+		index: `import { Oger, t } from "ogerjs";
+import { jwt } from "ogerjs/jwt";
+import { bearer } from "ogerjs/bearer";
 
 const app = new Oger()
   .use(jwt({ secret: process.env.JWT_SECRET ?? "dev-secret" }))
@@ -64,14 +61,12 @@ console.log(\`OgerJS listening on http://localhost:\${app.port ?? 3000}\`);
 	microservice: {
 		pkg: {
 			dependencies: {
-				"@ogerjs/core": "^0.1.0",
-				"@ogerjs/health": "^0.1.0",
-				"@ogerjs/logger": "^0.1.0",
+				ogerjs: "^0.1.2",
 			},
 		},
-		index: `import { Oger } from "@ogerjs/core";
-import { health } from "@ogerjs/health";
-import { logger } from "@ogerjs/logger";
+		index: `import { Oger } from "ogerjs";
+import { health } from "ogerjs/health";
+import { logger } from "ogerjs/logger";
 
 const app = new Oger()
   .use(logger())

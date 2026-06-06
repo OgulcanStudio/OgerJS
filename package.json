@@ -1,6 +1,6 @@
 {
 	"name": "ogerjs",
-	"version": "0.1.0",
+	"version": "0.1.2",
 	"private": true,
 	"description": "Ultra-fast Bun-native HTTP framework monorepo by Ogulcan Studio.",
 	"author": "Ogulcan Studio",

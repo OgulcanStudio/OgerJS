@@ -2,12 +2,12 @@
 
 **Ultra-fast Bun-native HTTP framework** with fluent macro ergonomics, zero-dependency core, native `Bun.serve({ routes })` routing, composable plugins, and built-in `t` validation.
 
-**Version 0.1.0** · **Bun >= 1.2.3** · Node.js 18+ via HTTP fallback (`@ogerjs/compat`) · Published by [Ogulcan Studio](https://ogulcan.studio)
+**Version 0.1.2** · **Bun >= 1.2.3** · Node.js 18+ via HTTP fallback (`ogerjs/compat`) · Published on [npm](https://www.npmjs.com/package/ogerjs) by [Ogulcan Studio](https://ogulcan.studio)
 
 ```bash
-npm i @ogerjs/core
+npm i ogerjs
 # or
-bun add @ogerjs/core
+bun add ogerjs
 ```
 
 ---
@@ -205,11 +205,11 @@ Methodology and env vars: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 ## Quickstart
 
 ```bash
-bun add @ogerjs/core
+bun add ogerjs
 ```
 
 ```ts
-import { Oger, t } from "@ogerjs/core";
+import { Oger, t } from "ogerjs";
 
 const app = new Oger()
   .get("/", () => "ok")
@@ -224,7 +224,7 @@ const app = new Oger()
 **New project**
 
 ```bash
-bunx create-oger my-api --yes
+bunx ogerjs my-api --yes
 cd my-api && bun install && bun run start
 ```
 
@@ -310,15 +310,13 @@ Methodology and env vars: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 
 ## Publishing (Ogulcan Studio npm)
 
-All `@ogerjs/*` packages publish to the public npm registry under the **ogulcanstudio** account (same publisher as [ogulcan-ui](https://www.npmjs.com/package/ogulcan-ui)).
+Everything ships as one [`ogerjs`](https://www.npmjs.com/package/ogerjs) package on the [ogulcanstudio](https://www.npmjs.com/~ogulcanstudio) npm account (framework, plugins, CLI).
 
 ```bash
 npm login                    # log in as ogulcanstudio
-bun run publish:packages     # dry-run pack check (all 30 packages)
-bun run publish:packages -- --yes   # publish after @ogerjs scope is linked to Ogulcan Studio
+bun run publish:packages     # dry-run pack check
+bun run publish:packages -- --yes   # publish ogerjs only
 ```
-
-Requires the `@ogerjs` npm scope to be linked to the Ogulcan Studio org. `.npmrc` sets public access for scoped packages.
 
 ---
 

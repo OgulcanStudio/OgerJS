@@ -5,14 +5,16 @@ OgerJS is a Bun-native HTTP framework with fluent macro ergonomics, zero-depende
 ## Requirements
 
 - **Bun** >= 1.2.3 (recommended runtime)
-- **Node.js** 18+ optional (HTTP fallback + `@ogerjs/compat`)
+- **Node.js** 18+ optional (HTTP fallback + `ogerjs/compat`)
 
 ## Install
+
+Everything ships in one npm package [`ogerjs`](https://www.npmjs.com/package/ogerjs) on the [Ogulcan Studio](https://www.npmjs.com/~ogulcanstudio) account. Plugins use subpath imports (`ogerjs/cors`, `ogerjs/jwt`, …). The monorepo uses `@ogerjs/*` workspace names locally.
 
 New project (recommended):
 
 ```bash
-bunx @ogerjs/create-oger my-api --yes
+bunx ogerjs my-api --yes
 cd my-api
 bun install
 bun run start
@@ -21,13 +23,13 @@ bun run start
 Existing project:
 
 ```bash
-bun add @ogerjs/core
+bun add ogerjs
 ```
 
 ## Hello world
 
 ```ts
-import { Oger, t } from "@ogerjs/core";
+import { Oger, t } from "ogerjs";
 
 const app = new Oger()
   .get("/", () => ({ status: "ok" }))
@@ -68,7 +70,7 @@ See [ROUTING.md](./ROUTING.md).
 Schemas compile to validators at route registration. TypeScript types flow via `Static<T>`.
 
 ```ts
-import { t, type Static } from "@ogerjs/core";
+import { t, type Static } from "ogerjs";
 
 const UserBody = t.Object({ name: t.String() });
 type UserBody = Static<typeof UserBody>;
@@ -83,10 +85,10 @@ Failed validation returns **422** with RFC 7807 `application/problem+json`. See 
 Mount security, observability, and enterprise plugins with `.use()`:
 
 ```ts
-import { cors } from "@ogerjs/cors";
-import { helmet } from "@ogerjs/helmet";
-import { logger } from "@ogerjs/logger";
-import { requestId } from "@ogerjs/request-id";
+import { cors } from "ogerjs/cors";
+import { helmet } from "ogerjs/helmet";
+import { logger } from "ogerjs/logger";
+import { requestId } from "ogerjs/request-id";
 
 app
   .use(requestId())

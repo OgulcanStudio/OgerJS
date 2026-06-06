@@ -34,12 +34,14 @@ Planned packages (OpenAPI UI, metrics, jobs, cache, etc.) are tracked in [ENTERP
 
 ## Quickstart
 
+Published on npm as a single [Ogulcan Studio](https://www.npmjs.com/~ogulcanstudio) package [`ogerjs`](https://www.npmjs.com/package/ogerjs) with subpath exports (`ogerjs/cors`, …). Workspace folders use `@ogerjs/*` names.
+
 ```bash
-bun add @ogerjs/core
+bun add ogerjs
 ```
 
 ```ts
-import { Oger, t } from "@ogerjs/core";
+import { Oger, t } from "ogerjs";
 
 const app = new Oger()
   .get("/", () => "Hello OgerJS")
@@ -76,7 +78,7 @@ const app = new Oger()
 | `@ogerjs/core` | Framework: routing, lifecycle, `t`, macros, DI, modules, `inject()` |
 | `@ogerjs/router` | Standalone trie router (used internally and for benchmarks) |
 | `@ogerjs/testing` | Plugin contract harness, `benchRoute()`, snapshot helpers |
-| `create-oger` | Project scaffold CLI (`bunx create-oger`, `oger-doctor`) |
+| `create-oger` (workspace) | Project scaffold CLI (`bunx ogerjs`, `oger-doctor`) — bundled into npm `ogerjs` |
 
 ### Security
 
@@ -145,7 +147,7 @@ bun install
 bun test packages
 bun run typecheck
 bun run build
-bunx create-oger my-app --yes
+bunx ogerjs my-app --yes
 bun run --cwd apps/example-banking test
 ```
 

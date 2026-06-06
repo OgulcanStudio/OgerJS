@@ -1,0 +1,57 @@
+{
+	"name": "@ogerjs/core",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"engines": {
+		"bun": ">=1.2.3"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"build": "bun run ../../scripts/build.ts",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@ogerjs/router": "workspace:*"
+	},
+	"devDependencies": {
+		"@ogerjs/testing": "workspace:*"
+	},
+	"author": "Ogulcan Studio",
+	"license": "MIT",
+	"homepage": "https://ogulcan.studio",
+	"bugs": {
+		"url": "https://github.com/OgulcanStudio/OgerJS/issues",
+		"email": "npm@ogulcan.studio"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/OgulcanStudio/OgerJS.git"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"files": [
+		"dist"
+	],
+	"description": "Ultra-fast Bun-native HTTP framework with fluent macros, zero runtime deps, and native Bun.serve routing.",
+	"keywords": [
+		"ogerjs",
+		"bun",
+		"http",
+		"typescript",
+		"framework",
+		"router",
+		"validation",
+		"openapi",
+		"performance"
+	]
+}

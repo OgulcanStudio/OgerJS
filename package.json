@@ -1,0 +1,43 @@
+{
+	"name": "ogerjs",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Ultra-fast Bun-native HTTP framework monorepo by Ogulcan Studio.",
+	"author": "Ogulcan Studio",
+	"license": "MIT",
+	"homepage": "https://ogulcan.studio",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/OgulcanStudio/OgerJS.git"
+	},
+	"bugs": {
+		"url": "https://github.com/OgulcanStudio/OgerJS/issues",
+		"email": "npm@ogulcan.studio"
+	},
+	"workspaces": [
+		"packages/*",
+		"apps/*",
+		"benchmark/targets/*"
+	],
+	"bin": {
+		"ogerjs": "./packages/create-oger/dist/cli.js"
+	},
+	"engines": {
+		"bun": ">=1.2.3"
+	},
+	"scripts": {
+		"test": "bun test packages",
+		"test:plugins": "bun test packages/testing/test/plugins-contract.test.ts",
+		"typecheck": "bun run typecheck:packages",
+		"typecheck:packages": "bun run --filter '@ogerjs/*' typecheck && cd packages/create-oger && bun run typecheck",
+		"build": "bun run scripts/build.ts",
+		"prepare": "bun run build",
+		"benchmark": "bun run build && cd benchmark && go run benchmark.go",
+		"publish:packages": "bun run scripts/publish-packages.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/ws": "^8.5.10",
+		"typescript": "^5.7.0"
+	}
+}

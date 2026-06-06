@@ -1,0 +1,14 @@
+{
+	"name": "example-basic",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@ogerjs/core": "workspace:*",
+		"@ogerjs/cors": "workspace:*",
+		"@ogerjs/json": "workspace:*"
+	},
+	"scripts": {
+		"start": "bun run src/index.ts",
+		"typecheck": "tsc --noEmit -p tsconfig.json"
+	}
+}

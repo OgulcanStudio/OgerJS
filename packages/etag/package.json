@@ -1,0 +1,56 @@
+{
+	"name": "@ogerjs/etag",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"dependencies": {
+		"@ogerjs/core": "workspace:*"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"build": "bun run ../../scripts/build.ts",
+		"test": "bun test"
+	},
+	"ogerjs": {
+		"plugin": true,
+		"export": "etag"
+	},
+	"types": "./dist/index.d.ts",
+	"devDependencies": {
+		"@ogerjs/testing": "workspace:*"
+	},
+	"author": "Ogulcan Studio",
+	"license": "MIT",
+	"homepage": "https://ogulcan.studio",
+	"bugs": {
+		"url": "https://github.com/OgulcanStudio/OgerJS/issues",
+		"email": "npm@ogulcan.studio"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/OgulcanStudio/OgerJS.git"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"files": [
+		"dist"
+	],
+	"description": "OgerJS plugin: etag — composable via .use(), zero extra runtime deps.",
+	"keywords": [
+		"ogerjs",
+		"bun",
+		"http",
+		"typescript",
+		"framework",
+		"plugin",
+		"etag"
+	]
+}

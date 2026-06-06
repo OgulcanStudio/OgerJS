@@ -1,0 +1,12 @@
+{
+	"name": "benchmark-honojsnode",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "node --experimental-strip-types server.ts"
+	},
+	"dependencies": {
+		"@hono/node-server": "^1.14.3",
+		"hono": "^4.12.23"
+	}
+}

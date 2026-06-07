@@ -17,7 +17,7 @@ const TEMPLATES: Record<
 	api: {
 		pkg: {
 			dependencies: {
-				ogerjs: "^0.1.2",
+				ogerjs: "^0.2.0",
 			},
 		},
 		index: `import { Oger, t } from "ogerjs";
@@ -30,14 +30,15 @@ const app = new Oger()
     body: t.Object({ message: t.String() }),
   });
 
-app.listen(Number(process.env.PORT ?? 3000));
-console.log(\`OgerJS listening on http://localhost:\${app.port ?? 3000}\`);
+const port = Number(process.env.PORT ?? 3000);
+app.listen(port);
+console.log(\`OgerJS listening on http://localhost:\${port}\`);
 `,
 	},
 	auth: {
 		pkg: {
 			dependencies: {
-				ogerjs: "^0.1.2",
+				ogerjs: "^0.2.0",
 			},
 		},
 		index: `import { Oger, t } from "ogerjs";
@@ -54,14 +55,15 @@ const app = new Oger()
     return { user: "demo" };
   });
 
-app.listen(Number(process.env.PORT ?? 3000));
-console.log(\`OgerJS listening on http://localhost:\${app.port ?? 3000}\`);
+const port = Number(process.env.PORT ?? 3000);
+app.listen(port);
+console.log(\`OgerJS listening on http://localhost:\${port}\`);
 `,
 	},
 	microservice: {
 		pkg: {
 			dependencies: {
-				ogerjs: "^0.1.2",
+				ogerjs: "^0.2.0",
 			},
 		},
 		index: `import { Oger } from "ogerjs";
@@ -73,16 +75,238 @@ const app = new Oger()
   .use(health())
   .get("/", () => ({ service: "oger-service" }));
 
-app.listen(Number(process.env.PORT ?? 3000));
-console.log(\`OgerJS listening on http://localhost:\${app.port ?? 3000}\`);
+const port = Number(process.env.PORT ?? 3000);
+app.listen(port);
+console.log(\`OgerJS listening on http://localhost:\${port}\`);
 `,
+	},
+	standard: {
+		pkg: {
+			dependencies: {
+				ogerjs: "^0.2.0",
+			},
+		},
+		index: `import { Oger } from "ogerjs";
+import { health } from "ogerjs/health";
+import { logger } from "ogerjs/logger";
+import { cors } from "ogerjs/cors";
+import { compress } from "ogerjs/compress";
+import { config } from "./config.js";
+import { getDb } from "./db/db.js";
+import { globalErrorFilter } from "./common/filters/error.filter.js";
+import { usersModule } from "./modules/users/users.module.js";
+
+// Initialize database
+await getDb();
+
+const app = new Oger()
+  .use(logger())
+  .use(cors())
+  .use(compress())
+  .use(health())
+  .onError(globalErrorFilter)
+  .use(usersModule);
+
+app.listen(config.port);
+console.log(\`OgerJS listening on http://localhost:\${config.port}\`);
+`,
+		extra: {
+			"src/config.ts": `import { t } from "ogerjs";
+
+export const ConfigSchema = t.Object({
+  port: t.Number({ default: 3000 }),
+  env: t.String({ default: "development" }),
+  databaseUrl: t.String({ default: ":memory:" }),
+});
+
+const rawConfig = {
+  port: Number(process.env.PORT ?? 3000),
+  env: process.env.NODE_ENV ?? "development",
+  databaseUrl: process.env.DATABASE_URL ?? ":memory:",
+};
+
+export const config = {
+  port: Number.isFinite(rawConfig.port) ? rawConfig.port : 3000,
+  env: rawConfig.env,
+  databaseUrl: rawConfig.databaseUrl,
+};
+`,
+			"src/db/db.ts": `import { config } from "../config.js";
+
+let dbInstance: any = null;
+
+export async function getDb() {
+  if (dbInstance) return dbInstance;
+
+  if (typeof Bun !== "undefined") {
+    const { Database } = await import("bun:sqlite");
+    dbInstance = new Database(config.databaseUrl);
+    dbInstance.run("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT, email TEXT)");
+    const count = dbInstance.query("SELECT count(*) as count FROM users").get() as { count: number };
+    if (count.count === 0) {
+      dbInstance.run("INSERT INTO users (id, name, email) VALUES (?, ?, ?)", ["1", "Alice", "alice@example.com"]);
+      dbInstance.run("INSERT INTO users (id, name, email) VALUES (?, ?, ?)", ["2", "Bob", "bob@example.com"]);
+    }
+  } else {
+    const store = new Map<string, any>([
+      ["1", { id: "1", name: "Alice", email: "alice@example.com" }],
+      ["2", { id: "2", name: "Bob", email: "bob@example.com" }],
+    ]);
+    dbInstance = {
+      run(query: string, params: any[] = []) {
+        if (query.startsWith("INSERT")) {
+          const [id, name, email] = params;
+          store.set(id, { id, name, email });
+        }
+      },
+      query(query: string) {
+        return {
+          all() {
+            return Array.from(store.values());
+          },
+          get() {
+            return { count: store.size };
+          }
+        };
+      }
+    };
+  }
+
+  return dbInstance;
+}
+`,
+			"src/common/filters/error.filter.ts": `import type { Context } from "ogerjs";
+
+export function globalErrorFilter(error: any, ctx: Context) {
+  const status = error.status || 500;
+  const code = error.code || "INTERNAL_SERVER_ERROR";
+  
+  return new Response(
+    JSON.stringify({
+      type: \`https://ogerjs.dev/errors/\${code.toLowerCase()}\`,
+      title: error.message || "An unexpected error occurred",
+      status,
+      code,
+      instance: ctx.request.url,
+      timestamp: new Date().toISOString(),
+    }),
+    {
+      status,
+      headers: { "content-type": "application/problem+json" },
+    }
+  );
+}
+`,
+			"src/modules/users/users.schema.ts": `import { t } from "ogerjs";
+
+export const CreateUserSchema = t.Object({
+  name: t.String({ minLength: 1 }),
+  email: t.String({ format: "email" }),
+});
+
+export const UserResponseSchema = t.Object({
+  id: t.String(),
+  name: t.String(),
+  email: t.String(),
+});
+`,
+			"src/modules/users/users.service.ts": `import { getDb } from "../../db/db.js";
+
+export class UsersService {
+  async list() {
+    const db = await getDb();
+    return db.query("SELECT * FROM users").all();
+  }
+
+  async create(data: { name: string; email: string }) {
+    const db = await getDb();
+    const newUser = {
+      id: String(Date.now()),
+      ...data,
+    };
+    db.run("INSERT INTO users (id, name, email) VALUES (?, ?, ?)", [newUser.id, newUser.name, newUser.email]);
+    return newUser;
+  }
+}
+`,
+			"src/modules/users/users.controller.ts": `import { defineController } from "ogerjs";
+import { CreateUserSchema } from "./users.schema.js";
+import type { UsersService } from "./users.service.js";
+
+export function createUsersController(usersService: UsersService) {
+  return defineController({
+    prefix: "/users",
+    routes: [
+      {
+        method: "get",
+        path: "",
+        handler: () => usersService.list(),
+      },
+      {
+        method: "post",
+        path: "",
+        body: CreateUserSchema,
+        handler: ({ body }) => usersService.create(body as any),
+      },
+    ],
+  });
+}
+`,
+			"src/modules/users/users.module.ts": `import { defineModule } from "ogerjs";
+import { UsersService } from "./users.service.js";
+import { createUsersController } from "./users.controller.js";
+
+export const usersModule = defineModule({
+  name: "users",
+  providers: [
+    {
+      token: UsersService,
+      useFactory: () => new UsersService(),
+    },
+  ],
+  setup: ({ app, container }) => {
+    const usersService = container.resolve<UsersService>(UsersService);
+    app.use(createUsersController(usersService));
+  },
+});
+`,
+			"test/users.test.ts": `import { describe, expect, test } from "bun:test";
+import { Oger } from "ogerjs";
+import { usersModule } from "../src/modules/users/users.module.js";
+
+describe("users module", () => {
+  test("GET /users should list users", async () => {
+    const app = new Oger().use(usersModule);
+    const res = await app.inject("/users");
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data)).toBe(true);
+    expect(data.length).toBeGreaterThan(0);
+  });
+
+  test("POST /users should create a user", async () => {
+    const app = new Oger().use(usersModule);
+    const res = await app.inject({
+      method: "POST",
+      path: "/users",
+      body: { name: "Charlie", email: "charlie@example.com" }
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toHaveProperty("id");
+    expect(data.name).toBe("Charlie");
+    expect(data.email).toBe("charlie@example.com");
+  });
+});
+`,
+		},
 	},
 };
 
 function featureScaffold(featureName: string) {
 	const base = featureName.replace(/[^a-z0-9-]/gi, "-").toLowerCase();
 	return {
-		[`src/features/${base}/routes.ts`]: `import { Oger, t } from "@ogerjs/core";
+		[`src/features/${base}/routes.ts`]: `import { Oger, t } from "ogerjs";
 
 export function register${base.replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase())}Routes(app: Oger) {
   return app
@@ -102,13 +326,42 @@ export function register${base.replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperC
 }
 `,
 		[`test/${base}.test.ts`]: `import { describe, expect, test } from "bun:test";
-import { Oger } from "@ogerjs/core";
-import { register${base.replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase())}Routes } from "../src/features/${base}/routes";
+import { Oger } from "ogerjs";
+import { register${base.replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase())}Routes } from "../src/features/${base}/routes.js";
 
 describe("${base}", () => {
   test("GET /${base}", async () => {
     const app = register${base.replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase())}Routes(new Oger());
     const res = await app.inject("/${base}");
+    expect(res.status).toBe(200);
+  });
+});
+`,
+	};
+}
+
+function localPluginScaffold(pluginName: string) {
+	const pkgName = pluginName.replace(/[^a-z0-9-]/gi, "-").toLowerCase();
+	const exportName = pkgName.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+	return {
+		[`src/plugins/${pkgName}.ts`]: `import { definePluginWithOptionalOptions } from "ogerjs";
+
+export interface ${exportName[0]?.toUpperCase()}${exportName.slice(1)}Options {}
+
+export const ${exportName} = definePluginWithOptionalOptions<${exportName[0]?.toUpperCase()}${exportName.slice(1)}Options>(
+  { name: "${pkgName}", scope: "global" },
+  (app) => app.get("/${pkgName}", () => ({ plugin: "${pkgName}" })),
+  {},
+);
+`,
+		[`test/plugins/${pkgName}.test.ts`]: `import { describe, expect, test } from "bun:test";
+import { Oger } from "ogerjs";
+import { ${exportName} } from "../src/plugins/${pkgName}.js";
+
+describe("${pkgName} plugin", () => {
+  test("GET /${pkgName}", async () => {
+    const app = new Oger().use(${exportName}());
+    const res = await app.inject("/${pkgName}");
     expect(res.status).toBe(200);
   });
 });
@@ -447,6 +700,7 @@ Usage:
   ogerjs generate plugin <name>           Generate a custom plugin scaffold in the current project
 
 Options:
+  --template <name>                       Project template: api, auth, microservice, standard (default: api)
   --yes, -y                               Skip interactive prompts and use defaults
   --help, -h                              Show this help message`);
 }
@@ -465,13 +719,24 @@ async function main() {
 			console.error("Error: Please specify a project name.");
 			process.exit(1);
 		}
-		const runtime = args[2] ?? "bunjs";
-		if (runtime !== "bunjs" && runtime !== "nodejs") {
-			console.error("Error: Runtime must be either 'bunjs' or 'nodejs'.");
-			process.exit(1);
+		let runtime = "bunjs";
+		let template = "api";
+		for (let i = 2; i < args.length; i++) {
+			const arg = args[i];
+			if (arg === "--template") {
+				template = args[i + 1] ?? "api";
+				i++; // skip next arg as it's the option value
+			} else if (arg === "--yes" || arg === "-y") {
+				// skip
+			} else if (!arg.startsWith("-")) {
+				if (arg === "bunjs" || arg === "nodejs") {
+					runtime = arg;
+				} else {
+					console.error(`Error: Invalid argument '${arg}'. Runtime must be either 'bunjs' or 'nodejs'.`);
+					process.exit(1);
+				}
+			}
 		}
-		const templateIdx = args.indexOf("--template");
-		const template = templateIdx >= 0 ? args[templateIdx + 1] : "api";
 		await runCreateProject(projectName, runtime, template);
 		return;
 	}
@@ -517,13 +782,19 @@ async function main() {
 			console.error("Error: Please specify a plugin name.");
 			process.exit(1);
 		}
-		const files = pluginScaffold(pluginName);
+		const fs = await import("node:fs");
+		const isMonorepo = fs.existsSync(join(process.cwd(), "tsconfig.base.json"));
+		const files = isMonorepo ? pluginScaffold(pluginName) : localPluginScaffold(pluginName);
 		for (const [path, content] of Object.entries(files)) {
 			const full = join(process.cwd(), path);
 			await mkdir(join(full, ".."), { recursive: true });
 			await writeFile(full, content);
 		}
-		console.log(`Plugin scaffold written for @ogerjs/${pluginName}`);
+		if (isMonorepo) {
+			console.log(`Plugin scaffold written for @ogerjs/${pluginName}`);
+		} else {
+			console.log(`Plugin scaffold written to src/plugins/${pluginName}.ts`);
+		}
 		return;
 	}
 

@@ -177,7 +177,7 @@
     },
     "packages/core": {
       "name": "@ogerjs/core",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "@ogerjs/router": "workspace:*",
       },
@@ -197,7 +197,7 @@
     },
     "packages/create-oger": {
       "name": "create-oger",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "create-oger": "./src/cli.ts",
         "oger-doctor": "./src/doctor.ts",

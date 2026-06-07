@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { useBunNative } from "./runtime";
 
 export interface PasswordHashOptions {
 	algorithm?: "bcrypt" | "argon2id" | "argon2d" | "argon2i" | "scrypt" | "pbkdf2";
@@ -9,7 +10,7 @@ export const password = {
 		passwordStr: string,
 		options?: PasswordHashOptions,
 	): Promise<string> {
-		const isBun = typeof Bun !== "undefined" && !(globalThis as any).FORCE_NODE_COMPAT;
+		const isBun = useBunNative();
 		const algo = options?.algorithm || (isBun ? "bcrypt" : "scrypt");
 
 		if (isBun && ["bcrypt", "argon2id", "argon2d", "argon2i"].includes(algo)) {
@@ -32,7 +33,7 @@ export const password = {
 	},
 
 	async verify(passwordStr: string, hash: string): Promise<boolean> {
-		const isBun = typeof Bun !== "undefined" && !(globalThis as any).FORCE_NODE_COMPAT;
+		const isBun = useBunNative();
 
 		if (
 			hash.startsWith("$2a$") ||

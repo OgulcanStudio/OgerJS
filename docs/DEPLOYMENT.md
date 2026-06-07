@@ -153,41 +153,16 @@ bun create oger --plugin my-plugin
 
 The doctor checks: `package.json` existence, `@ogerjs/core` dependency, version skew across `@ogerjs/*` packages, missing JWT_SECRET in production, missing TypeScript types.
 
-## HTTP Client
+## Node.js with Bun shims
 
-`@ogerjs/http-client` provides a typed HTTP client with retries, circuit breaker, and tracing:
+For apps that import `bun:sqlite`, `bun:test`, or use the global `Bun` namespace on Node.js, register the compat loader before your entry point:
 
-```ts
-import { createHttpClient, fetchWithRetry } from "@ogerjs/http-client";
-import { CircuitBreaker } from "@ogerjs/circuit-breaker";
-
-const client = createHttpClient({
-  baseUrl: "https://api.example.com",
-  timeoutMs: 5000,
-  retries: { retries: 3, backoffMs: 100 },
-  auth: { type: "bearer", token: "..." },
-  breaker: new CircuitBreaker({ failureThreshold: 5 }),
-  traceIdHeader: "x-trace-id",
-});
-
-const res = await client.get("/items");
-const data = await client.json<Item[]>("/items");
+```bash
+node --import ogerjs/compat/register app.js
 ```
 
-## Data Layer
+Or import `@ogerjs/compat/register` as the first line of your entry file. See [COMPATIBILITY.md](./COMPATIBILITY.md).
 
-`@ogerjs/data` provides repository pattern with adapters:
+## Roadmap packages (not in v0.2.0)
 
-```ts
-import { createSqliteAdapter, InMemoryRepository } from "@ogerjs/data";
-import Database from "bun:sqlite";
-
-const db = new Database("app.db");
-const adapter = createSqliteAdapter(db);
-const rows = await adapter.query("SELECT * FROM users");
-
-const repo = new InMemoryRepository<User>({ getId: (u) => u.id });
-await repo.insert({ id: "1", name: "Alice" });
-const alice = await repo.findById("1");
-const results = repo.query().where(u => u.name.startsWith("A")).orderBy("name", "asc").toArray();
-```
+`@ogerjs/http-client`, `@ogerjs/circuit-breaker`, and `@ogerjs/data` are planned — see [ENTERPRISE_ROADMAP.md](./ENTERPRISE_ROADMAP.md). Use native `fetch` with retries in app code, or `@ogerjs/compat` `Database` for SQLite until those packages ship.

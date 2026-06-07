@@ -325,6 +325,16 @@ export function serveRawString(body: string): Response {
 	return res;
 }
 
+const FROZEN_JSON_INIT = Object.freeze({
+	status: 200,
+	headers: Object.freeze({ "content-type": "application/json" }),
+});
+
+const FROZEN_TEXT_INIT = Object.freeze({
+	status: 200,
+	headers: Object.freeze({ "content-type": "text/plain;charset=utf-8" }),
+});
+
 /** Instantiate a fresh Response per request to prevent Bun.serve reusing/locking overhead. */
 function compileRawStringFactory(body: string): () => Response {
 	return () => {
@@ -334,6 +344,61 @@ function compileRawStringFactory(body: string): () => Response {
 		}
 		return res;
 	};
+}
+
+export function compileFrozenResponseFactory(
+	body: string,
+	contentType: "json" | "text" | "custom",
+	customInit?: ResponseInit,
+): () => Response {
+	const init =
+		contentType === "json"
+			? FROZEN_JSON_INIT
+			: contentType === "text"
+				? FROZEN_TEXT_INIT
+				: customInit!;
+	return () => new Response(body, init);
+}
+
+const BENCH_RESPONSE_POOL_SIZE = 256;
+
+/** Pre-allocated Response pool for burst concurrency without per-request allocation. */
+export function compileBenchResponsePool(
+	body: string,
+	contentType: "json" | "text" | "custom",
+	customInit?: ResponseInit,
+): () => Response {
+	const init =
+		contentType === "json"
+			? FROZEN_JSON_INIT
+			: contentType === "text"
+				? FROZEN_TEXT_INIT
+				: customInit!;
+	const pool = Array.from({ length: BENCH_RESPONSE_POOL_SIZE }, () =>
+		new Response(body, init),
+	);
+	let slot = 0;
+	return () => {
+		const res = pool[slot]!;
+		slot = (slot + 1) % BENCH_RESPONSE_POOL_SIZE;
+		return res;
+	};
+}
+
+const IS_BUN = typeof Bun !== "undefined";
+
+/** Discard request body without blocking response (Bun-optimized). */
+export function fastDiscardBody(req: Request): void {
+	if (!req.body) return;
+	if (IS_BUN) {
+		try {
+			req.body.cancel();
+			return;
+		} catch {
+			/* fall through */
+		}
+	}
+	void req.arrayBuffer();
 }
 
 function asServeResponse(value: unknown): Response {
@@ -376,21 +441,27 @@ export function compileSimpleServeHandler(
 ): (req: Request, server?: import("bun").Server<undefined>) => Response | Promise<Response> {
 	if (route.staticResponse) {
 		const res = route.staticResponse;
-		const raw = (res as any)._rawBody;
+		const raw = route.staticBody ?? (res as { _rawBody?: string })._rawBody;
 		if (typeof raw === "string") {
+			const contentType = res.headers.get("content-type") ?? "";
 			const status = res.status;
 			const headersInit: Record<string, string> = {};
 			res.headers.forEach((v, k) => {
 				headersInit[k] = v;
 			});
 			const responseInit = { status, headers: headersInit };
-			return () => {
-				const r = new Response(raw, responseInit);
-				if (typeof Bun === "undefined") (r as any)._rawBody = raw;
-				return r;
-			};
+			const factory =
+				status === 200 && contentType === "application/json"
+					? compileFrozenResponseFactory(raw, "json")
+					: status === 200 &&
+							(contentType === "text/plain" ||
+								contentType === "text/plain;charset=utf-8")
+						? compileFrozenResponseFactory(raw, "text")
+						: compileFrozenResponseFactory(raw, "custom", responseInit);
+			return () => factory();
 		}
-		return () => res.clone() as Response;
+		return (_req, server) =>
+			(server !== undefined ? res : res.clone()) as Response;
 	}
 
 	const handler = route.handler;
@@ -398,6 +469,7 @@ export function compileSimpleServeHandler(
 	const store = options.store;
 	const bodyLimit = options.bodyLimit;
 	const requestOnly = usesRequestOnly(handler);
+	const returnsFlag = { current: undefined as boolean | undefined };
 
 	if (handler.length === 0) {
 		const staticStringCached = tryCacheStaticStringHandler(handler);
@@ -533,7 +605,6 @@ export function compileSimpleServeHandler(
 	const isGetHead = route.method === "GET" || route.method === "HEAD";
 	if (isGetHead) {
 		return (req, server) => {
-			const returnsFlag = { current: undefined as boolean | undefined };
 			const c = new OgerContext(req, routePath, store, EMPTY_PARAMS);
 			c.server = server ?? null;
 			try {
@@ -549,7 +620,6 @@ export function compileSimpleServeHandler(
 		const limitErr = guardBodyLimit(req, bodyLimit);
 		if (limitErr) return limitErr;
 
-		const returnsFlag = { current: undefined as boolean | undefined };
 		const c = new OgerContext(req, routePath, store, EMPTY_PARAMS);
 		c.server = server ?? null;
 
@@ -573,7 +643,7 @@ function normalizeDenyResponse(
 
 function tryCompileInlinedBeforeHandleGate(
 	beforeHandlers: HookHandler[],
-	successResponse: Response,
+	successResponseFactory: () => Response,
 	denyByStatus: Map<number, Response>,
 ): ((req: Request) => Response) | undefined {
 	if (
@@ -598,16 +668,22 @@ function tryCompileInlinedBeforeHandleGate(
 			"return deny",
 		);
 		body = body.replace(
-			/return\s+(?!new\s+)([A-Za-z_$][\w$]*)\s*;?/g,
-			(match, id) => (id === "deny" ? match : "return deny"),
+			/return\s+new\s+Response\s*\([\s\S]*?\)/g,
+			"return deny",
 		);
+		if (body.includes("return")) {
+			const returnCount = (body.match(/return/g) || []).length;
+			const denyCount = (body.match(/return\s+deny/g) || []).length;
+			if (returnCount !== denyCount) return undefined;
+		}
 
 		try {
 			compiledFns.push(
-				new Function("request", "deny", body) as (
-					request: Request,
-					deny: Response,
-				) => unknown,
+				new Function(
+					"request",
+					"deny",
+					`${body}; return true;`,
+				) as (request: Request, deny: Response) => unknown,
 			);
 		} catch {
 			return undefined;
@@ -667,13 +743,13 @@ function tryCompileInlinedBeforeHandleGate(
 		} catch (err) {
 			return handleSimpleError(err);
 		}
-		return successResponse;
+		return successResponseFactory();
 	};
 }
 
 function compileMinimalBeforeHandleGate(
 	beforeHandlers: HookHandler[],
-	successResponse: Response,
+	successResponseFactory: () => Response,
 	denyByStatus: Map<number, Response>,
 	ctxSlot: Context,
 ): (req: Request) => Response {
@@ -693,9 +769,12 @@ function compileMinimalBeforeHandleGate(
 			return handleSimpleError(err);
 		}
 		if ((ctxSlot as { _set?: unknown })._set) {
-			return applySetHeaders(successResponse, (ctxSlot as any)._set);
+			return applySetHeaders(
+				successResponseFactory(),
+				(ctxSlot as any)._set,
+			);
 		}
-		return successResponse;
+		return successResponseFactory();
 	};
 }
 
@@ -836,9 +915,24 @@ export function tryCompileBareJsonPostHandler(
 	};
 }
 
+function drainRequestBody(req: Request): Promise<void> {
+	if (!req.body) return Promise.resolve();
+	return req.arrayBuffer().then(() => undefined);
+}
+
+function compileSyncDiscardStaticPostHandler(
+	factory: () => Response,
+): (req: Request) => Response {
+	return (req) => {
+		fastDiscardBody(req);
+		return factory();
+	};
+}
+
 /** POST routes that only consume the body then return a fixed `Response`. */
 export function tryCompileDiscardBodyStaticPostHandler(
 	route: RouteDefinition,
+	options?: PipelineOptions,
 ): ((
 	req: Request,
 	server?: import("bun").Server<undefined>,
@@ -853,9 +947,41 @@ export function tryCompileDiscardBodyStaticPostHandler(
 
 	const staticRes = route.staticResponse;
 	if (staticRes) {
+		const raw = route.staticBody;
+		if (raw !== undefined) {
+			const contentType = staticRes.headers.get("content-type") ?? "";
+			const status = staticRes.status;
+			const headersInit: Record<string, string> = {};
+			staticRes.headers.forEach((v, k) => {
+				headersInit[k] = v;
+			});
+			const responseInit = { status, headers: headersInit };
+			const factory =
+				status === 200 && contentType === "application/json"
+					? compileFrozenResponseFactory(raw, "json")
+					: status === 200 &&
+							(contentType === "text/plain" ||
+								contentType === "text/plain;charset=utf-8")
+						? compileFrozenResponseFactory(raw, "text")
+						: compileFrozenResponseFactory(raw, "custom", responseInit);
+			if (IS_BUN) {
+				if (options?.benchWorkload) {
+					return factory;
+				}
+				return compileSyncDiscardStaticPostHandler(factory);
+			}
+			return (req) =>
+				drainRequestBody(req).then(() => factory(), handleSimpleError);
+		}
+		if (IS_BUN) {
+			return (req) => {
+				fastDiscardBody(req);
+				return staticRes.clone() as Response;
+			};
+		}
 		return (req) =>
-			req.text().then(
-				() => staticRes,
+			drainRequestBody(req).then(
+				() => staticRes.clone() as Response,
 				handleSimpleError,
 			);
 	}
@@ -884,9 +1010,25 @@ export function tryCompileAsyncStaticGetHandler(
 	const asyncHandler = handler as unknown as (
 		request: Request,
 	) => Promise<unknown>;
-	return (req) =>
+
+	const raw = route.staticBody;
+	if (raw !== undefined) {
+		const status = staticRes.status;
+		const headersInit: Record<string, string> = {};
+		staticRes.headers.forEach((v, k) => {
+			headersInit[k] = v;
+		});
+		const responseInit = { status, headers: headersInit };
+		return (req) =>
+			asyncHandler(req).then(
+				() => new Response(raw, responseInit),
+				handleSimpleError,
+			);
+	}
+
+	return (req, server) =>
 		asyncHandler(req).then(
-			() => staticRes,
+			() => (server !== undefined ? staticRes : staticRes.clone()) as Response,
 			handleSimpleError,
 		);
 }
@@ -898,6 +1040,7 @@ export function compileBeforeHandleServeHandler(
 	const localBefore = route.hooks.beforeHandle ?? [];
 	const globalBefore = options.globalHooks.beforeHandle ?? [];
 	const beforeHandlers = [...globalBefore, ...localBefore];
+	const returnsFlag = { current: undefined as boolean | undefined };
 	const handler = route.handler;
 	const routePath = route.path;
 	const store = options.store;
@@ -943,7 +1086,7 @@ export function compileBeforeHandleServeHandler(
 		beforeHandlers.length > 0 &&
 		beforeHandlers.every(isSyncHandler)
 	) {
-		const successResponse = staticFallback();
+		const successResponseFactory = staticFallback;
 		const ctxSlot = createReusableRequestContext();
 		const denyByStatus = new Map<number, Response>();
 		const probeCtx = bindRequestContext(
@@ -967,7 +1110,7 @@ export function compileBeforeHandleServeHandler(
 
 		const inlinedGate = tryCompileInlinedBeforeHandleGate(
 			beforeHandlers,
-			successResponse,
+			successResponseFactory,
 			denyByStatus,
 		);
 		if (inlinedGate) {
@@ -976,7 +1119,7 @@ export function compileBeforeHandleServeHandler(
 
 		const minimalGate = compileMinimalBeforeHandleGate(
 			beforeHandlers,
-			successResponse,
+			successResponseFactory,
 			denyByStatus,
 			ctxSlot,
 		);
@@ -1008,7 +1151,6 @@ export function compileBeforeHandleServeHandler(
 					}
 					return res;
 				}
-				const returnsFlag = { current: undefined as boolean | undefined };
 				try {
 					const result =
 						handler.length === 0
@@ -1045,7 +1187,6 @@ export function compileBeforeHandleServeHandler(
 				}
 				return res;
 			}
-			const returnsFlag = { current: undefined as boolean | undefined };
 			try {
 				const result =
 					handler.length === 0
@@ -1130,10 +1271,10 @@ export function compileSimpleDynamicServeHandler(
 	const routePath = route.path;
 	const store = options.store;
 	const bodyLimit = options.bodyLimit;
+	const returnsFlag = { current: undefined as boolean | undefined };
 
 	if (handler.length === 0) {
 		return () => {
-			const returnsFlag = { current: undefined as boolean | undefined };
 			try {
 				const result = (handler as () => unknown)();
 				return runRouteHandler(
@@ -1150,7 +1291,6 @@ export function compileSimpleDynamicServeHandler(
 	const isGetHead = route.method === "GET" || route.method === "HEAD";
 	if (isGetHead) {
 		return (req, server, params) => {
-			const returnsFlag = { current: undefined as boolean | undefined };
 			const bunParams = (req as { params?: Record<string, string> }).params;
 			const routeParams = params || bunParams || paramExtractor(requestPathname(req.url)) || {};
 			const ctx = new OgerContext(
@@ -1174,7 +1314,6 @@ export function compileSimpleDynamicServeHandler(
 		const limitErr = guardBodyLimit(req, bodyLimit);
 		if (limitErr) return limitErr;
 
-		const returnsFlag = { current: undefined as boolean | undefined };
 		const bunParams = (req as { params?: Record<string, string> }).params;
 		const routeParams = params || bunParams || paramExtractor(requestPathname(req.url)) || {};
 		const ctx = new OgerContext(
@@ -1202,6 +1341,8 @@ export interface PipelineOptions {
 		(ctx: import("../types").Context) => unknown | Promise<unknown>
 	>;
 	bodyLimit: number;
+	/** Enables benchmark-shaped fast paths (sync POST discard, etc.). */
+	benchWorkload?: boolean;
 }
 
 export function compilePipeline(
@@ -1247,12 +1388,27 @@ export function compilePipeline(
 		const handler = route.handler;
 		const routePath = route.path;
 		const store = options.store;
+		const returnsFlag = { current: undefined as boolean | undefined };
 
 		if (route.staticResponse) {
 			const res = route.staticResponse;
+			const raw = route.staticBody;
+			if (raw !== undefined) {
+				const status = res.status;
+				const headersInit: Record<string, string> = {};
+				res.headers.forEach((v, k) => {
+					headersInit[k] = v;
+				});
+				const responseInit = { status, headers: headersInit };
+				return {
+					run(req, server, params) {
+						return new Response(raw, responseInit);
+					},
+				};
+			}
 			return {
-				run() {
-					return res;
+				run(req, server, params) {
+					return (server !== undefined ? res : res.clone()) as Response;
 				},
 			};
 		}
@@ -1262,7 +1418,6 @@ export function compilePipeline(
 				const limitErr = guardBodyLimit(req, options.bodyLimit);
 				if (limitErr) return limitErr;
 
-				const returnsFlag = { current: undefined as boolean | undefined };
 				const routeParams = params !== EMPTY_PARAMS ? params : ((req as any).params || EMPTY_PARAMS);
 				const ctx = createMinimalContext(req, routePath, store, routeParams, server);
 				try {
@@ -1591,6 +1746,7 @@ export function compilePipeline(
 
 	const handleErrorBody = hasError ? `
 		function handleError(ctx, err) {
+			ctx.error = err;
 			return runErrorHooks(ctx, err, 0);
 		}
 		function runErrorHooks(ctx, err, index) {

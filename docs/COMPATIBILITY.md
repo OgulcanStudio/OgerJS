@@ -229,6 +229,39 @@ const restored = compress.unbrotli(brotli);
 
 ---
 
+## Bun Native Package Shims & Loader Registration
+
+To allow writing an OgerJS project that runs in both Bun and Node.js without any code modifications, `@ogerjs/compat` provides an ESM import registration hook (`@ogerjs/compat/register`) and shims for all Bun-specific packages:
+
+### Global `Bun` Namespace
+When registered in Node.js, the global `Bun` object is automatically defined and shimmed, supporting:
+- **`Bun.escapeHTML(string)`**: High-performance HTML escaping.
+- **`Bun.sleep(ms)` / `Bun.sleepSync(ms)`**: Synchronous and asynchronous sleep helpers (utilizing `Atomics.wait` on shared buffers for blocking synchronously on Node.js).
+- **`Bun.concat(arrays)`**: High-performance TypedArray merging.
+- **`Bun.deepEquals(a, b)`**: Recursive object equality matching (supporting Maps, Sets, TypedArrays, Dates, RegExps, etc.).
+- **`Bun.which(command)`**: Cross-platform path resolution for binary commands.
+- **`Bun.nanoseconds()`**: High-resolution nanoseconds elapsed since startup.
+- **`Bun.hash`**: Fast non-cryptographic hashes (`adler32`, `crc32`, `murmur32`, `wyhash`, `murmur64`, `cityHash32`, `cityHash64`).
+
+### Native Bun Modules
+If your code imports Bun-native modules directly, they are intercepted and resolved automatically in Node.js:
+- **`bun`**: Resolves to the `Bun` namespace shim.
+- **`bun:sqlite`**: Resolves to Node's native `DatabaseSync` wrapper.
+- **`bun:jsc`**: Maps to V8 serialization and heap statistic primitives.
+- **`bun:ffi`**: Provides platform suffixes and type constants, allowing library loading (`dlopen`) to parse/load without errors, throwing only if an FFI function is actually executed under Node.js.
+- **`bun:test`**: Maps test suites directly onto Node's native `node:test` runner, incorporating a complete Jest-compatible `expect()` matcher wrapper.
+
+### `import.meta.main` Injection
+The custom registration loader dynamically intercepts ES modules to define `import.meta.main` as `true` for the main entry point module, matching Bun's startup behavior perfectly.
+
+### Usage in Node.js
+To run your project under Node.js with all shims active, use Node's import flag:
+```bash
+node --import @ogerjs/compat/register app.js
+```
+
+---
+
 ## Coverage Gaps
 
 The compat layer focuses on APIs with **different entry points** between Bun and Node.js. The following are intentionally out of scope or handled elsewhere:
@@ -236,7 +269,7 @@ The compat layer focuses on APIs with **different entry points** between Bun and
 | Area | Status |
 |------|--------|
 | HTTP server / routing | `@ogerjs/core` (`Bun.serve` vs `node:http`) |
-| `fetch` / `Request` / `Response` | Web standard globals on both runtimes |
+| `fetch` / `Request` / `Response` | Web standard globals on Bun; on Node.js, `@ogerjs/core` uses high-performance duck-typed facades (`OgerNodeRequest` and `OgerNodeHeaders`) to bypass slow native constructors. |
 | `WebSocket` | Web standard; core `listen({ websocket })` on Bun |
 | `process.env` / `Bun.env` | `@ogerjs/core` `loadEnv` |
 | `node:fs`, `node:path`, `node:stream` | Import directly; identical on both runtimes |
@@ -244,3 +277,4 @@ The compat layer focuses on APIs with **different entry points** between Bun and
 | `bcrypt` / `argon2` password hashes | Bun-only; use `scrypt` or `pbkdf2` for cross-runtime DB storage |
 | Async compression streams | Not yet unified (sync helpers only) |
 | `Bun.redis`, `Bun.sql` | Bun-only; no Node native equivalent |
+

@@ -47,3 +47,23 @@ export function timingSafeEqual(
 	if (aBuf.length !== bBuf.length) return false;
 	return crypto.timingSafeEqual(aBuf, bBuf);
 }
+
+/** RFC 9562 UUID v7 string based on millisecond timestamp. */
+export function randomUUIDv7(): string {
+	const now = Date.now();
+	const randomBytes = crypto.randomBytes(10);
+
+	// Set version to 7 (first 4 bits of bytes[0] to 0111)
+	randomBytes[0] = (randomBytes[0] & 0x0f) | 0x70;
+	// Set variant to 2 (first 2 bits of bytes[2] to 10)
+	randomBytes[2] = (randomBytes[2] & 0x3f) | 0x80;
+
+	const timestampHex = now.toString(16).padStart(12, "0");
+	const part1 = timestampHex.slice(0, 8);
+	const part2 = timestampHex.slice(8, 12);
+	const part3 = Array.from(randomBytes.slice(0, 2), b => b.toString(16).padStart(2, "0")).join("");
+	const part4 = Array.from(randomBytes.slice(2, 4), b => b.toString(16).padStart(2, "0")).join("");
+	const part5 = Array.from(randomBytes.slice(4, 10), b => b.toString(16).padStart(2, "0")).join("");
+
+	return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+}

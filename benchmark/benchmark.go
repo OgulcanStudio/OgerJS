@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -38,12 +39,12 @@ const benchAuthHeader = "Bearer bench-token"
 
 type category struct {
 	Key     string
-	Label   string
 	Path    string
 	Method  string
 	Body    string
 	Auth    bool
 	Headers map[string]string
+	Label   string
 }
 
 type target struct {
@@ -53,6 +54,7 @@ type target struct {
 	Command string
 	Args    []string
 	Dir     string
+	Pid     int
 }
 
 type stats struct {
@@ -65,9 +67,13 @@ type stats struct {
 	ElapsedMs   float64
 	RPS         float64
 	P50Ms       float64
+	P90Ms       float64
 	P95Ms       float64
 	P99Ms       float64
+	P999Ms      float64
 	AvgMs       float64
+	StdDevMs    float64
+	PeakMemMB   float64
 }
 
 var categories = map[string]category{
@@ -146,12 +152,41 @@ func main() {
 	}()
 
 	fmt.Println("Starting APIs...")
-	for _, t := range targets {
+	for i, t := range targets {
 		freePort(t.Port)
 		cmd := startTarget(t)
 		procs = append(procs, cmd)
+		targets[i].Pid = cmd.Process.Pid
 	}
 	defer stop()
+
+	// ── BACKGROUND RESOURCE MONITORING ──
+	peakMemory := make(map[string]int) // target.ID -> Peak RSS (KB)
+	var peakMemMu sync.Mutex
+	stopMonitoring := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopMonitoring:
+				return
+			case <-ticker.C:
+				for _, t := range targets {
+					if t.Pid > 0 {
+						mem, err := getMemoryUsage(t.Pid)
+						if err == nil {
+							peakMemMu.Lock()
+							if mem > peakMemory[t.ID] {
+								peakMemory[t.ID] = mem
+							}
+							peakMemMu.Unlock()
+						}
+					}
+				}
+			}
+		}
+	}()
 
 	var readyWg sync.WaitGroup
 	for _, t := range targets {
@@ -163,7 +198,7 @@ func main() {
 	}
 	readyWg.Wait()
 	for _, t := range targets {
-		fmt.Printf("  ready  %s  :%d\n", t.Label, t.Port)
+		fmt.Printf("  ready  %s  :%d  (PID %d)\n", t.Label, t.Port, t.Pid)
 	}
 
 	if warmup > 0 {
@@ -173,7 +208,7 @@ func main() {
 			wg.Add(1)
 			go func(t target) {
 				defer wg.Done()
-				burstLoad(t.Port, category{Path: "/", Method: "GET"}, warmup, concurrency, false)
+				burstLoad(t.Port, category{Path: "/", Method: "GET", Key: "ok"}, warmup, concurrency, false)
 			}(t)
 		}
 		wg.Wait()
@@ -188,6 +223,9 @@ func main() {
 		catResults := make([]stats, 0, len(targets))
 
 		record := func(t target, s burstResult) stats {
+			peakMemMu.Lock()
+			peakKb := peakMemory[t.ID]
+			peakMemMu.Unlock()
 			return stats{
 				Target:      t.Label,
 				Port:        t.Port,
@@ -198,9 +236,13 @@ func main() {
 				ElapsedMs:   s.elapsedMs,
 				RPS:         s.rps,
 				P50Ms:       s.p50,
+				P90Ms:       s.p90,
 				P95Ms:       s.p95,
 				P99Ms:       s.p99,
+				P999Ms:      s.p999,
 				AvgMs:       s.avg,
+				StdDevMs:    s.stddev,
+				PeakMemMB:   float64(peakKb) / 1024.0,
 			}
 		}
 
@@ -240,7 +282,13 @@ func main() {
 		}
 	}
 
+	close(stopMonitoring)
+
 	printMatrix(all, targets, catKeys)
+
+	// Generate beautiful report artifact
+	reportPath := filepath.Join(root, "benchmark_report.md")
+	generateMarkdownReport(reportPath, all, peakMemory)
 
 	if path := os.Getenv("BENCH_JSON_PATH"); path != "" {
 		writeJSON(path, all, requests, concurrency, warmup)
@@ -260,9 +308,12 @@ type burstResult struct {
 	elapsedMs float64
 	rps       float64
 	p50       float64
+	p90       float64
 	p95       float64
 	p99       float64
+	p999      float64
 	avg       float64
+	stddev    float64
 }
 
 func burstLoad(port int, cat category, total, concurrency int, measure bool) burstResult {
@@ -346,8 +397,16 @@ func burstLoad(port int, cat category, total, concurrency int, measure bool) bur
 				}
 				return
 			}
-			_, _ = io.Copy(io.Discard, res.Body)
+			bodyBytes, err := io.ReadAll(res.Body)
 			_ = res.Body.Close()
+			if err != nil {
+				if measure {
+					mu.Lock()
+					errCount++
+					mu.Unlock()
+				}
+				return
+			}
 
 			if !measure {
 				return
@@ -355,9 +414,18 @@ func burstLoad(port int, cat category, total, concurrency int, measure bool) bur
 			mu.Lock()
 			defer mu.Unlock()
 			if res.StatusCode < 200 || res.StatusCode >= 300 {
+				fmt.Fprintf(os.Stderr, "[ERROR] Target on port %d returned bad status: %d\n", port, res.StatusCode)
 				errCount++
 				return
 			}
+			
+			bodyStr := string(bodyBytes)
+			if !validateBody(cat.Key, bodyStr) {
+				fmt.Fprintf(os.Stderr, "[ERROR] Target on port %d validation failed for key %q. Got: %q\n", port, cat.Key, bodyStr)
+				errCount++
+				return
+			}
+
 			okCount++
 			seen++
 			if len(latency) < cap {
@@ -378,12 +446,20 @@ func burstLoad(port int, cat category, total, concurrency int, measure bool) bur
 
 	sort.Float64s(latency)
 	avg := 0.0
+	stddev := 0.0
 	if len(latency) > 0 {
 		sum := 0.0
 		for _, v := range latency {
 			sum += v
 		}
 		avg = sum / float64(len(latency))
+
+		varianceSum := 0.0
+		for _, v := range latency {
+			diff := v - avg
+			varianceSum += diff * diff
+		}
+		stddev = math.Sqrt(varianceSum / float64(len(latency)))
 	}
 
 	rps := 0.0
@@ -397,9 +473,12 @@ func burstLoad(port int, cat category, total, concurrency int, measure bool) bur
 		elapsedMs: elapsedSec * 1000,
 		rps:       rps,
 		p50:       percentile(latency, 50),
+		p90:       percentile(latency, 90),
 		p95:       percentile(latency, 95),
 		p99:       percentile(latency, 99),
+		p999:      percentile(latency, 99.9),
 		avg:       avg,
+		stddev:    stddev,
 	}
 }
 
@@ -720,4 +799,168 @@ func envBool(key string, fallback bool) bool {
 func fatal(msg string) {
 	fmt.Fprintln(os.Stderr, msg)
 	os.Exit(1)
+}
+
+func getMemoryUsage(pid int) (int, error) {
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV")
+		out, err := cmd.Output()
+		if err != nil {
+			return 0, err
+		}
+		lines := strings.Split(string(out), "\n")
+		if len(lines) < 2 {
+			return 0, fmt.Errorf("tasklist output too short")
+		}
+		parts := strings.Split(lines[1], "\",\"")
+		if len(parts) < 5 {
+			return 0, fmt.Errorf("tasklist output invalid format")
+		}
+		memStr := strings.Trim(parts[4], "\" \r\nK")
+		memStr = strings.ReplaceAll(memStr, ",", "")
+		memStr = strings.ReplaceAll(memStr, ".", "")
+		memKb, err := strconv.Atoi(memStr)
+		if err != nil {
+			return 0, err
+		}
+		return memKb, nil
+	} else {
+		cmd := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(pid))
+		out, err := cmd.Output()
+		if err != nil {
+			return 0, err
+		}
+		rssStr := strings.TrimSpace(string(out))
+		rssKb, err := strconv.Atoi(rssStr)
+		if err != nil {
+			return 0, err
+		}
+		return rssKb, nil
+	}
+}
+
+func validateBody(key, body string) bool {
+	switch key {
+	case "ok":
+		return body == "ok"
+	case "json-parse":
+		return strings.Contains(body, "itemCount") && strings.Contains(body, "32")
+	case "json-serialize":
+		return strings.Contains(body, "count") && strings.Contains(body, "24") && strings.Contains(body, "276")
+	case "route-param":
+		return body == "42"
+	case "auth":
+		return strings.Contains(body, "authorized") && strings.Contains(body, "true")
+	case "async-io":
+		return strings.Contains(body, "count") && strings.Contains(body, "24")
+	case "query":
+		return strings.Contains(body, "q") && strings.Contains(body, "acct") && strings.Contains(body, "50")
+	case "nested":
+		return strings.Contains(body, "accountId") && strings.Contains(body, "42") && strings.Contains(body, "1250000")
+	case "middleware":
+		return strings.Contains(body, "ok") && strings.Contains(body, "true")
+	case "validation":
+		return strings.Contains(body, "accepted") && strings.Contains(body, "50000")
+	case "large-json":
+		return strings.Contains(body, "batchId") && strings.Contains(body, "processed") && strings.Contains(body, "64")
+	case "headers":
+		return strings.Contains(body, "requestId") && strings.Contains(body, "bench-req-001") && strings.Contains(body, "apiKeyPresent")
+	}
+	return true
+}
+
+func generateMarkdownReport(path string, all []stats, peakMemory map[string]int) {
+	f, err := os.Create(path)
+	if err != nil {
+		fmt.Printf("Error creating markdown report: %s\n", err)
+		return
+	}
+	defer f.Close()
+
+	fmt.Fprintf(f, "# OgerJS HTTP Performance & Resource Utilization Benchmark Report\n\n")
+	fmt.Fprintf(f, "Generated at: %s\n\n", time.Now().UTC().Format(time.RFC850))
+	fmt.Fprintf(f, "## Methodology & System Info\n")
+	fmt.Fprintf(f, "- **OS**: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(f, "- **CPU Cores**: %d\n", runtime.NumCPU())
+	fmt.Fprintf(f, "- **Go Version**: %s\n\n", runtime.Version())
+
+	// 1. Throughput Table
+	fmt.Fprintf(f, "## Throughput (RPS)\n\n")
+	fmt.Fprintf(f, "| Target |")
+	catKeys := selectedCategories()
+	for _, k := range catKeys {
+		fmt.Fprintf(f, " %s |", k)
+	}
+	fmt.Fprintf(f, "\n|---|")
+	for range catKeys {
+		fmt.Fprintf(f, "---|")
+	}
+	fmt.Fprintf(f, "\n")
+
+	targetsMap := make(map[string]bool)
+	var targetNames []string
+	for _, s := range all {
+		if !targetsMap[s.Target] {
+			targetsMap[s.Target] = true
+			targetNames = append(targetNames, s.Target)
+		}
+	}
+	sort.Strings(targetNames)
+
+	for _, name := range targetNames {
+		fmt.Fprintf(f, "| %s |", name)
+		for _, k := range catKeys {
+			val := "—"
+			for _, s := range all {
+				if s.Target == name && s.CategoryKey == k {
+					val = fmt.Sprintf("%.0f", s.RPS)
+					break
+				}
+			}
+			fmt.Fprintf(f, " %s |", val)
+		}
+		fmt.Fprintf(f, "\n")
+	}
+	fmt.Fprintf(f, "\n")
+
+	// 2. Resource Footprint
+	fmt.Fprintf(f, "## Resource Footprint (Peak Memory Usage)\n\n")
+	fmt.Fprintf(f, "| Target | Peak RSS (MB) |\n")
+	fmt.Fprintf(f, "|---|---|\n")
+	
+	var peakKeys []string
+	for k := range peakMemory {
+		peakKeys = append(peakKeys, k)
+	}
+	sort.Strings(peakKeys)
+	
+	for _, id := range peakKeys {
+		kb := peakMemory[id]
+		fmt.Fprintf(f, "| %s | %.2f MB |\n", id, float64(kb)/1024.0)
+	}
+	fmt.Fprintf(f, "\n")
+
+	// 3. Detailed Latency Scenarios
+	fmt.Fprintf(f, "## Detailed Latency & Correctness metrics\n\n")
+	for _, k := range catKeys {
+		label := categories[k].Label
+		fmt.Fprintf(f, "### %s\n\n", label)
+		fmt.Fprintf(f, "| Target | RPS | P50 (ms) | P90 (ms) | P95 (ms) | P99 (ms) | P99.9 (ms) | Avg (ms) | StdDev (ms) | Errors |\n")
+		fmt.Fprintf(f, "|---|---|---|---|---|---|---|---|---|---|\n")
+
+		var catStats []stats
+		for _, s := range all {
+			if s.CategoryKey == k {
+				catStats = append(catStats, s)
+			}
+		}
+		sort.Slice(catStats, func(i, j int) bool { return catStats[i].RPS > catStats[j].RPS })
+
+		for _, s := range catStats {
+			fmt.Fprintf(f, "| %s | %.0f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %d |\n",
+				s.Target, s.RPS, s.P50Ms, s.P90Ms, s.P95Ms, s.P99Ms, s.P999Ms, s.AvgMs, s.StdDevMs, s.Errors)
+		}
+		fmt.Fprintf(f, "\n")
+	}
+	fmt.Printf("\nWrote Markdown report: %s\n", path)
 }

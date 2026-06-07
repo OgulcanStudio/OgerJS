@@ -126,34 +126,44 @@ export function compileSchema(schema: TSchema): Validator {
 				schema.required ??
 					Object.keys(props).filter((k) => props[k]?.kind !== "optional"),
 			);
+			const requiredKeys = Array.from(required);
+			const requiredCount = requiredKeys.length;
+			const validatorEntries = Object.entries(validators);
+			const validatorEntriesCount = validatorEntries.length;
 			const stripExtra = schema.additionalProperties === false;
 			return (input, path = "") => {
 				if (typeof input !== "object" || input === null || Array.isArray(input))
 					return fail("object", path, "Expected object", "object");
 				const obj = input as Record<string, unknown>;
 				const out: Record<string, unknown> = {};
-				for (const key of required) {
-					if (!(key in obj) && props[key]?.kind !== "optional")
+				for (let i = 0; i < requiredCount; i++) {
+					const key = requiredKeys[i];
+					if (!(key in obj)) {
 						return fail(
 							"object",
 							`${path}/${key}`,
 							"Required property missing",
 						);
+					}
 				}
 				if (stripExtra) {
-					for (const key of Object.keys(obj)) {
-						if (!(key in props)) {
-							return fail(
-								"object",
-								path ? `${path}/${key}` : key,
-								"Unexpected property",
-							);
+					for (const key in obj) {
+						if (Object.prototype.hasOwnProperty.call(obj, key)) {
+							if (!(key in props)) {
+								return fail(
+									"object",
+									path ? `${path}/${key}` : key,
+									"Unexpected property",
+								);
+							}
 						}
 					}
 				}
-				for (const [key, validator] of Object.entries(validators)) {
+				for (let i = 0; i < validatorEntriesCount; i++) {
+					const entry = validatorEntries[i];
+					const key = entry[0];
+					const validator = entry[1];
 					if (!(key in obj)) {
-						if (props[key]?.kind === "optional") continue;
 						continue;
 					}
 					const r = validator(obj[key], path ? `${path}/${key}` : key);
@@ -165,9 +175,10 @@ export function compileSchema(schema: TSchema): Validator {
 		}
 		case "union": {
 			const variants = (schema.variants ?? []).map(compileSchema);
+			const variantsCount = variants.length;
 			return (input, path = "") => {
-				for (const v of variants) {
-					const r = v(input, path);
+				for (let i = 0; i < variantsCount; i++) {
+					const r = variants[i](input, path);
 					if (r.success) return r;
 				}
 				return fail("union", path, "No variant matched");
@@ -181,16 +192,18 @@ export function compileSchema(schema: TSchema): Validator {
 				if (typeof input !== "object" || input === null || Array.isArray(input))
 					return fail("record", path, "Expected record");
 				const out: Record<string, unknown> = {};
-				for (const [k, val] of Object.entries(
-					input as Record<string, unknown>,
-				)) {
-					if (!valueValidator) {
-						out[k] = val;
-						continue;
+				const obj = input as Record<string, unknown>;
+				for (const k in obj) {
+					if (Object.prototype.hasOwnProperty.call(obj, k)) {
+						const val = obj[k];
+						if (!valueValidator) {
+							out[k] = val;
+							continue;
+						}
+						const r = valueValidator(val, `${path}/${k}`);
+						if (!r.success) return r;
+						out[k] = r.value;
 					}
-					const r = valueValidator(val, `${path}/${k}`);
-					if (!r.success) return r;
-					out[k] = r.value;
 				}
 				return ok(out);
 			};

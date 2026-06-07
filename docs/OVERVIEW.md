@@ -2,7 +2,7 @@
 
 Bun-native HTTP framework monorepo with fluent macro ergonomics, zero-dependency core, native `Bun.serve({ routes })` routing, composable plugins, `t` schema validation, and lifecycle hooks.
 
-**Release v0.1.0** · **Bun >= 1.2.3**
+**Release v0.2.0** · **Bun >= 1.2.3**
 
 ## Architecture
 

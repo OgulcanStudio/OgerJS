@@ -140,7 +140,7 @@ benchmark/         HTTP comparison harness
 docs/              Documentation (this folder)
 ```
 
-## Common packages (v0.1.0)
+## Common packages (v0.2.0)
 
 | Package | Purpose |
 |---------|---------|
@@ -153,7 +153,7 @@ docs/              Documentation (this folder)
 | `@ogerjs/idempotency` | Idempotent POST |
 | `@ogerjs/compat` | Bun/Node compatibility helpers |
 
-OpenAPI UI plugin is roadmap — v0.1.0 exports specs via `app.routeRegistry` ([OPENAPI.md](./OPENAPI.md)).
+OpenAPI UI plugin is roadmap — v0.2.0 exports specs via `app.routeRegistry` ([OPENAPI.md](./OPENAPI.md)).
 
 Full list: [OVERVIEW.md](./OVERVIEW.md#package-table).
 

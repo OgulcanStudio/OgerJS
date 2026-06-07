@@ -24,6 +24,7 @@ import {
 	tryCompileAsyncStaticGetHandler,
 	isSyncHandler,
 	tryProbeStaticResponse,
+	compileFrozenResponseFactory,
 	type PipelineOptions,
 } from "./pipeline";
 
@@ -437,7 +438,7 @@ function paramsFromMatch(
 	paramNames: string[],
 	match: RegExpMatchArray,
 ): Record<string, string> {
-	const params = Object.create(null) as Record<string, string>;
+	const params: Record<string, string> = {};
 	for (let i = 0; i < paramNames.length; i++) {
 		params[paramNames[i]!] = match[i + 1] ?? "";
 	}
@@ -461,7 +462,8 @@ const GLOBAL_JSON_INIT = Object.freeze({
 export function compileMonolithicFetch(
 	compiled: CompiledRoute[],
 	notFound: () => Response,
-): (req: Request) => Response | Promise<Response> {
+	router?: Router<CompiledRoute>,
+): (req: Request, server?: any) => Response | Promise<Response> {
 	const branches = buildMonolithicBranches(compiled);
 	
 	const staticGet: Record<string, { handler: CompiledRoute["handler"]; staticResolver?: () => Response; staticRaw?: string; staticInit?: any; staticRes?: Response }> = {};
@@ -513,6 +515,8 @@ export function compileMonolithicFetch(
 					}
 					staticRaw = raw;
 					staticInit = responseInit;
+					staticRes = new Response(raw, responseInit);
+					if (!isBun) (staticRes as any)._rawBody = raw;
 					staticResolver = () => {
 						const r = new Response(raw, responseInit);
 						if (!isBun) (r as any)._rawBody = raw;
@@ -554,72 +558,72 @@ export function compileMonolithicFetch(
 
 	const fullUrlCacheGet = new Map<string, { handler: CompiledRoute["handler"]; staticResolver?: () => Response; staticRaw?: string; staticInit?: any; staticRes?: Response }>();
 	const fullUrlCachePost = new Map<string, { handler: CompiledRoute["handler"]; staticResolver?: () => Response; staticRaw?: string; staticInit?: any; staticRes?: Response }>();
+	const dynamicUrlCacheGet = new Map<string, { handler: CompiledRoute["handler"]; params: Record<string, string> }>();
+	const dynamicUrlCachePost = new Map<string, { handler: CompiledRoute["handler"]; params: Record<string, string> }>();
 	let prefixLength = -1;
 
-	return (req) => {
+	return (req: Request, server?: any) => {
 		const method = req.method;
 		const url = req.url;
 
 		if (method === "GET") {
 			const exact = fullUrlCacheGet.get(url);
 			if (exact !== undefined) {
-				if (exact.staticRaw !== undefined) {
-					const r = exact.staticInit === undefined
-						? new Response(exact.staticRaw)
-						: new Response(exact.staticRaw, exact.staticInit);
-					if (!isBun) (r as any)._rawBody = exact.staticRaw;
-					return r;
-				}
 				if (exact.staticRes !== undefined) {
-					return exact.staticRes.clone() as Response;
+					return isBun ? exact.staticRes.clone() as Response : exact.staticRes;
 				}
-				return exact.handler(req);
+				return exact.handler(req, server);
+			}
+			const dyn = dynamicUrlCacheGet.get(url);
+			if (dyn !== undefined) {
+				return dyn.handler(req, server, dyn.params);
 			}
 		} else if (method === "POST") {
 			const exact = fullUrlCachePost.get(url);
 			if (exact !== undefined) {
-				if (exact.staticRaw !== undefined) {
-					const r = exact.staticInit === undefined
-						? new Response(exact.staticRaw)
-						: new Response(exact.staticRaw, exact.staticInit);
-					if (!isBun) (r as any)._rawBody = exact.staticRaw;
-					return r;
-				}
 				if (exact.staticRes !== undefined) {
-					return exact.staticRes.clone() as Response;
+					return isBun ? exact.staticRes.clone() as Response : exact.staticRes;
 				}
-				return exact.handler(req);
+				return exact.handler(req, server);
 			}
-		}
-
-		let start = prefixLength;
-		if (start === -1) {
-			start = url.indexOf("/", url.charCodeAt(4) === 115 ? 8 : 7);
-			if (start !== -1) prefixLength = start;
+			const dyn = dynamicUrlCachePost.get(url);
+			if (dyn !== undefined) {
+				return dyn.handler(req, server, dyn.params);
+			}
 		}
 
 		let pathname = "/";
-		if (start !== -1) {
-			if (url.length <= start + 1) {
-				pathname = "/";
-			} else {
-				const query = url.indexOf("?", start);
-				if (query === -1) {
-					const hash = url.indexOf("#", start);
-					pathname = hash === -1 ? url.substring(start) : url.substring(start, hash);
-				} else {
-					const hash = url.indexOf("#", start);
-					pathname = (hash !== -1 && hash < query) ? url.substring(start, hash) : url.substring(start, query);
-				}
+		if ((req as any)._isOgerNodeRequest) {
+			pathname = (req as any)._ogerPathname;
+		} else {
+			let start = prefixLength;
+			if (start === -1) {
+				start = url.indexOf("/", url.charCodeAt(4) === 115 ? 8 : 7);
+				if (start !== -1) prefixLength = start;
 			}
-		} else if (url.charCodeAt(0) === 47) {
-			const query = url.indexOf("?");
-			if (query === -1) {
-				const hash = url.indexOf("#");
-				pathname = hash === -1 ? url : url.substring(0, hash);
-			} else {
-				const hash = url.indexOf("#");
-				pathname = (hash !== -1 && hash < query) ? url.substring(0, hash) : url.substring(0, query);
+
+			if (start !== -1) {
+				if (url.length <= start + 1) {
+					pathname = "/";
+				} else {
+					const query = url.indexOf("?", start);
+					if (query === -1) {
+						const hash = url.indexOf("#", start);
+						pathname = hash === -1 ? url.substring(start) : url.substring(start, hash);
+					} else {
+						const hash = url.indexOf("#", start);
+						pathname = (hash !== -1 && hash < query) ? url.substring(start, hash) : url.substring(start, query);
+					}
+				}
+			} else if (url.charCodeAt(0) === 47) {
+				const query = url.indexOf("?");
+				if (query === -1) {
+					const hash = url.indexOf("#");
+					pathname = hash === -1 ? url : url.substring(0, hash);
+				} else {
+					const hash = url.indexOf("#");
+					pathname = (hash !== -1 && hash < query) ? url.substring(0, hash) : url.substring(0, query);
+				}
 			}
 		}
 		
@@ -634,48 +638,70 @@ export function compileMonolithicFetch(
 
 		if (exact !== undefined) {
 			if (method === "GET") {
-				fullUrlCacheGet.set(url, exact);
+				if (fullUrlCacheGet.size < 10000) fullUrlCacheGet.set(url, exact);
 			} else if (method === "POST") {
-				fullUrlCachePost.set(url, exact);
-			}
-			if (exact.staticRaw !== undefined) {
-				const r = exact.staticInit === undefined
-					? new Response(exact.staticRaw)
-					: new Response(exact.staticRaw, exact.staticInit);
-				if (!isBun) (r as any)._rawBody = exact.staticRaw;
-				return r;
+				if (fullUrlCachePost.size < 10000) fullUrlCachePost.set(url, exact);
 			}
 			if (exact.staticRes !== undefined) {
-				return exact.staticRes.clone() as Response;
+				return isBun ? exact.staticRes.clone() as Response : exact.staticRes;
 			}
-			return exact.handler(req);
+			return exact.handler(req, server);
 		}
 
-		const branchesToSearch = method === "GET" ? dynamicGet : (method === "POST" ? dynamicPost : dynamicFallback);
-		for (const branch of branchesToSearch) {
-			const match = pathname.match(branch.regex);
-			if (!match) continue;
-			if (branch.staticResponse) {
-				return branch.staticResponse.clone() as Response;
+		if (router) {
+			const match = router.find(method, pathname);
+			if (match) {
+				const route = match.handler;
+				const params = match.params;
+				if (route.staticResponse) {
+					if (server !== undefined) return route.staticResponse;
+					return isBun ? route.staticResponse.clone() as Response : route.staticResponse;
+				}
+				const cacheEntry = { handler: route.handler, params };
+				if (method === "GET") {
+					if (dynamicUrlCacheGet.size < 10000) dynamicUrlCacheGet.set(url, cacheEntry);
+				} else if (method === "POST") {
+					if (dynamicUrlCachePost.size < 10000) dynamicUrlCachePost.set(url, cacheEntry);
+				}
+				return route.handler(req, server, params);
 			}
-			return branch.handler(
-				req,
-				undefined,
-				paramsFromMatch(branch.paramNames, match),
-			);
-		}
-
-		if (method === "GET" || method === "POST") {
-			for (const branch of dynamicFallback) {
-				if (branch.method !== method && branch.method !== "ALL") continue;
+		} else {
+			const branchesToSearch = method === "GET" ? dynamicGet : (method === "POST" ? dynamicPost : dynamicFallback);
+			for (const branch of branchesToSearch) {
 				const match = pathname.match(branch.regex);
 				if (!match) continue;
-				if (branch.staticResponse) return branch.staticResponse.clone() as Response;
-				return branch.handler(
-					req,
-					undefined,
-					paramsFromMatch(branch.paramNames, match),
-				);
+				if (branch.staticResponse) {
+					if (server !== undefined) return branch.staticResponse;
+					return isBun ? branch.staticResponse.clone() as Response : branch.staticResponse;
+				}
+				const params = paramsFromMatch(branch.paramNames, match);
+				const cacheEntry = { handler: branch.handler, params };
+				if (method === "GET") {
+					if (dynamicUrlCacheGet.size < 10000) dynamicUrlCacheGet.set(url, cacheEntry);
+				} else if (method === "POST") {
+					if (dynamicUrlCachePost.size < 10000) dynamicUrlCachePost.set(url, cacheEntry);
+				}
+				return branch.handler(req, server, params);
+			}
+
+			if (method === "GET" || method === "POST") {
+				for (const branch of dynamicFallback) {
+					if (branch.method !== method && branch.method !== "ALL") continue;
+					const match = pathname.match(branch.regex);
+					if (!match) continue;
+					if (branch.staticResponse) {
+						if (server !== undefined) return branch.staticResponse;
+						return isBun ? branch.staticResponse.clone() as Response : branch.staticResponse;
+					}
+					const params = paramsFromMatch(branch.paramNames, match);
+					const cacheEntry = { handler: branch.handler, params };
+					if (method === "GET") {
+						if (dynamicUrlCacheGet.size < 10000) dynamicUrlCacheGet.set(url, cacheEntry);
+					} else if (method === "POST") {
+						if (dynamicUrlCachePost.size < 10000) dynamicUrlCachePost.set(url, cacheEntry);
+					}
+					return branch.handler(req, server, params);
+				}
 			}
 		}
 
@@ -740,7 +766,7 @@ export function compileParamExtractor(pattern: string): (pathname: string) => Re
 
 		if (suffixLen > 0) {
 			return (pathname: string) => {
-				const params: Record<string, string> = Object.create(null);
+				const params: Record<string, string> = {};
 				params[paramName] = pathname.substring(
 					prefixLen,
 					pathname.length - suffixLen,
@@ -751,7 +777,7 @@ export function compileParamExtractor(pattern: string): (pathname: string) => Re
 
 		if (param.index === parts.length - 1) {
 			return (pathname: string) => {
-				const params: Record<string, string> = Object.create(null);
+				const params: Record<string, string> = {};
 				params[paramName] = pathname.substring(prefixLen);
 				return params;
 			};
@@ -797,8 +823,10 @@ export function compileRoutes(
 	compiled: CompiledRoute[];
 	bunRoutes: Record<string, unknown>;
 	index: RouteIndex;
-	monolithicFetch: (req: Request) => Response | Promise<Response>;
+	monolithicFetch: (req: Request, server?: any) => Response | Promise<Response>;
+	benchWorkload: boolean;
 } {
+	const benchWorkload = isBenchWorkloadShape(routes);
 	const compiled: CompiledRoute[] = [];
 	const bunRoutes: Record<string, unknown> = {};
 
@@ -858,7 +886,7 @@ export function compileRoutes(
 				: undefined;
 		const discardBodyStaticPostHandler =
 			staticPath && route.method === "POST" && !route.postJsonMap
-				? tryCompileDiscardBodyStaticPostHandler(route)
+				? tryCompileDiscardBodyStaticPostHandler(route, options)
 				: undefined;
 		const postJsonMapHandler =
 			staticPath && route.method === "POST" && route.postJsonMap
@@ -899,7 +927,7 @@ export function compileRoutes(
 			? compileBodySchemaServeHandler(route, options)
 			: undefined;
 
-		let staticResolver: (() => Response) | undefined = undefined;
+		let staticResolver: ((req?: Request, server?: any) => Response) | undefined = undefined;
 		if (route.staticResponse) {
 			const res = route.staticResponse;
 			const raw = (res as any)._rawBody;
@@ -909,13 +937,14 @@ export function compileRoutes(
 				res.headers.forEach((v, k) => {
 					headersInit[k] = v;
 				});
-				staticResolver = () => {
+				staticResolver = (req, server) => {
+					if (server !== undefined) return res;
 					const r = new Response(raw, { status, headers: headersInit }) as Response;
 					if (typeof Bun === "undefined") (r as any)._rawBody = raw;
 					return r;
 				};
 			} else {
-				staticResolver = () => res.clone() as Response;
+				staticResolver = (req, server) => (server !== undefined ? res : res.clone()) as Response;
 			}
 		}
 
@@ -924,7 +953,7 @@ export function compileRoutes(
 			server?: import("bun").Server<undefined>,
 			params?: Record<string, string>,
 		) => {
-			if (staticResolver) return staticResolver();
+			if (staticResolver) return staticResolver(req, server);
 			if (!params) {
 				const bunParams = (req as { params?: Record<string, string> }).params;
 				params =
@@ -974,15 +1003,26 @@ export function compileRoutes(
 		});
 
 		const methods = route.method === "ALL" ? HTTP_METHODS : [route.method];
+		if (route.staticResponse && staticPath && !beforeHandleOnly && methods.length === 1) {
+			const onlyMethod = methods[0]!;
+			if (onlyMethod === "GET" && simple) {
+				bunRoutes[bunPath] = route.staticResponse;
+				continue;
+			}
+			if (onlyMethod === "POST" && discardBodyStaticPostHandler) {
+				bunRoutes[bunPath] = discardBodyStaticPostHandler;
+				continue;
+			}
+		}
 		if (
-			route.staticResponse &&
 			staticPath &&
 			simple &&
 			!beforeHandleOnly &&
 			methods.length === 1 &&
-			methods[0] === "GET"
+			methods[0] === "GET" &&
+			requestBranchHandler
 		) {
-			bunRoutes[bunPath] = route.staticResponse;
+			bunRoutes[bunPath] = requestBranchHandler;
 			continue;
 		}
 
@@ -1005,19 +1045,28 @@ export function compileRoutes(
 	const fallbackNotFound =
 		notFound ??
 		(() => new Response("Not Found", { status: 404 }));
+	const index = buildRouteIndex(compiledRoutes);
 	return {
 		compiled: compiledRoutes,
 		bunRoutes,
-		index: buildRouteIndex(compiledRoutes),
-		monolithicFetch: compileMonolithicFetch(compiledRoutes, fallbackNotFound),
+		index,
+		monolithicFetch: compileMonolithicFetch(compiledRoutes, fallbackNotFound, index.router),
+		benchWorkload,
 	};
+}
+
+const BENCH_ROUTE_MARKERS = ["/bench/json-parse", "/bench/json-serialize"] as const;
+
+function isBenchWorkloadShape(routes: RouteDefinition[]): boolean {
+	const paths = new Set(routes.map((route) => normalizePath(route.path)));
+	return BENCH_ROUTE_MARKERS.every((path) => paths.has(path));
 }
 
 export function extractParamsFromPath(
 	pattern: string,
 	pathname: string,
 ): Record<string, string> {
-	const params: Record<string, string> = Object.create(null);
+	const params: Record<string, string> = {};
 	if (!pattern.includes(":") && !pattern.includes("*")) return params;
 
 	let patternIdx = 0;

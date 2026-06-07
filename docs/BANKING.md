@@ -137,7 +137,7 @@ pubsub.publish(`user:${owner}`, JSON.stringify({ type: "balance.updated", accoun
 
 Example uses in-memory `BankingStore`. For production:
 
-- **Bun**: `bun:sqlite` or `@ogerjs/compat` `Database` wrapper (Bun + `better-sqlite3` on Node)
+- **Bun**: `bun:sqlite` or `@ogerjs/compat` `Database` wrapper (`bun:sqlite` on Bun, `node:sqlite` on Node.js 22.5+)
 - **Postgres**: `node:pg` or Bun SQL — wrap transfers in explicit transactions
 - **Outbox**: see `@ogerjs/events` interfaces for async notification relay
 
@@ -150,6 +150,18 @@ Set `FORCE_NODE_COMPAT=1` to use Node `http`/`https` fallback from `@ogerjs/core
 - REST + plugins: same `app.use()` stack
 - WebSocket: requires optional `ws` package on Node (devDependency at app level, not in `@ogerjs/core`)
 - TLS: pass `listen({ tls: { cert, key } })`
+
+## High throughput (banking REST + WebSocket)
+
+Single Bun process: **~20k–40k req/s** on banking-shaped routes (see [BENCHMARKS.md](./BENCHMARKS.md)). For **1M requests / 5s** (~200k req/s), scale horizontally:
+
+- Run multiple OgerJS workers behind a load balancer (nginx, HAProxy, cloud LB)
+- Keep WebSocket sticky sessions on the same worker or use a shared pub/sub (Redis, NATS)
+- Use `@ogerjs/rate-limit` per instance; add edge rate limits at the proxy
+- Prefer stateless JWT auth; persist idempotency keys in Redis/SQLite
+- Enable `listen({ reusePort: true })` on Bun when spawning worker processes
+
+The framework avoids per-request allocations on hot paths (`staticResponse`, native `Bun.serve` routes) and drains request bodies before responding — no hung sockets under burst load.
 
 ## Production checklist
 

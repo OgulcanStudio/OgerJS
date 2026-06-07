@@ -24,7 +24,9 @@ export function getRuntimeMode(): RuntimeMode {
 }
 
 export function isBunRuntime(): boolean {
-	return typeof Bun !== "undefined";
+	return typeof process !== "undefined" &&
+		process.versions !== undefined &&
+		process.versions.bun !== undefined;
 }
 
 export function isEdgeMode(): boolean {

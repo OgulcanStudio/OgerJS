@@ -2,7 +2,7 @@
 
 **Ultra-fast Bun-native HTTP framework** with fluent macro ergonomics, zero-dependency core, native `Bun.serve({ routes })` routing, composable plugins, and built-in `t` validation.
 
-**Version 0.1.2** · **Bun >= 1.2.3** · Node.js 18+ via HTTP fallback (`ogerjs/compat`) · Published on [npm](https://www.npmjs.com/package/ogerjs) by [Ogulcan Studio](https://ogulcan.studio)
+**Version 0.2.0** · **Bun >= 1.2.3** · Node.js 18+ via HTTP fallback (`ogerjs/compat`) · Published on [npm](https://www.npmjs.com/package/ogerjs) by [Ogulcan Studio](https://ogulcan.studio)
 
 ```bash
 npm i ogerjs
@@ -253,7 +253,7 @@ Shipped packages and roadmap gaps: [docs/OVERVIEW.md](docs/OVERVIEW.md) · [docs
 
 ---
 
-## Shipped packages (v0.1.0)
+## Shipped packages (v0.2.0)
 
 | Area | Packages |
 |------|----------|
@@ -274,7 +274,7 @@ Full table with descriptions: [docs/OVERVIEW.md#package-table](docs/OVERVIEW.md#
 |-----|---------|-------|
 | Basic API | `bun run --cwd apps/example-basic start` | Routes + validation |
 | Auth | `bun run --cwd apps/example-auth start` | JWT, API keys |
-| Banking | `bun run --cwd apps/example-banking start` | Enterprise stack + OpenAPI export |
+| Banking | `bun run --cwd apps/example-banking start` | REST + WebSocket + OpenAPI export |
 
 Banking walkthrough: [docs/BANKING.md](docs/BANKING.md)
 
@@ -290,7 +290,7 @@ bun run build        # Build all packages
 cd benchmark && go run benchmark.go   # HTTP benchmark (see docs/BENCHMARKS.md)
 ```
 
-CI runs on `main`, `master`, and `v0.1.0` branches.
+CI runs on `main`, `master`, and `v0.2` branches.
 
 ---
 

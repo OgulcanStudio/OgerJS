@@ -37,12 +37,24 @@ export const compat = definePluginWithOptionalOptions<CompatOptions>(
 );
 
 export { compress } from "./compress";
-export { hash, hmac, randomBytes, randomUUID, timingSafeEqual } from "./crypto";
+export { hash, hmac, randomBytes, randomUUID, randomUUIDv7, timingSafeEqual } from "./crypto";
 export { CryptoHasher } from "./hasher";
+
 export { CompatFile, openFile } from "./file";
 export type { FileStat } from "./file";
 export { password } from "./password";
 export { Database, Statement } from "./sqlite";
 export type { DatabaseOptions } from "./sqlite";
 export type { PasswordHashOptions } from "./password";
+
+// New Bun native package shim exports
+export { default as Bun, serve } from "./bun-shim";
+export { BunFileShim } from "./file-shim";
+export { write } from "./write-shim";
+export { spawn, spawnSync } from "./spawn-shim";
+export * as jsc from "./jsc";
+export * as ffi from "./ffi";
+export * as test from "./test-shim";
+
+
 

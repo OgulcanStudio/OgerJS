@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
+import { useBunNative } from "./runtime";
 
 export class CryptoHasher {
 	private _hasher: any;
 
 	constructor(algorithm: string, key?: string | Uint8Array) {
-		if (typeof Bun !== "undefined" && !(globalThis as any).FORCE_NODE_COMPAT) {
-			this._hasher = new Bun.CryptoHasher(algorithm as any, key as any);
+		if (useBunNative()) {
+			this._hasher = new (globalThis as any).Bun.CryptoHasher(algorithm as any, key as any);
 		} else {
 			if (key !== undefined) {
 				this._hasher = crypto.createHmac(algorithm, key);
@@ -23,7 +24,7 @@ export class CryptoHasher {
 	digest(): Uint8Array;
 	digest(encoding: "hex" | "base64" | "latin1"): string;
 	digest(encoding?: string): any {
-		if (typeof Bun !== "undefined" && !(globalThis as any).FORCE_NODE_COMPAT) {
+		if (useBunNative()) {
 			return this._hasher.digest(encoding as any);
 		}
 		if (!encoding) {

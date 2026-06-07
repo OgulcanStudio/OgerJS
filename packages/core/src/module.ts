@@ -34,7 +34,11 @@ export function defineModule(module: OgerModule): Oger {
 		else container.registerFactory(p.token, p.useFactory);
 	}
 
-	const child = new Oger({ name: module.name, scope: "scoped" });
+	const child = new Oger({
+		name: module.name,
+		scope: "scoped",
+		seed: Math.random().toString(36).substring(2, 9),
+	});
 	child.decorate({ container });
 	child.state({ [`di:${module.name ?? "anonymous"}`]: container });
 	module.setup?.({ app: child, container });
@@ -45,6 +49,15 @@ export interface ControllerRoute {
 	method: "get" | "post" | "put" | "patch" | "delete" | "options" | "head";
 	path: string;
 	handler: RouteHandler;
+	body?: import("./schema/types").TSchema;
+	query?: import("./schema/types").TSchema;
+	params?: import("./schema/types").TSchema;
+	headers?: import("./schema/types").TSchema;
+	cookie?: import("./schema/types").TSchema;
+	response?: import("./schema/types").TSchema;
+	schema?: any;
+	beforeHandle?: any;
+	[key: string]: unknown;
 }
 
 export interface ControllerDefinition {
@@ -54,10 +67,15 @@ export interface ControllerDefinition {
 
 /** Opt-in controller helper — maps route tables onto a group prefix. */
 export function defineController(def: ControllerDefinition): Oger {
-	const child = new Oger({ name: "controller", scope: "scoped" });
+	const child = new Oger({
+		name: "controller",
+		scope: "scoped",
+		seed: Math.random().toString(36).substring(2, 9),
+	});
 	const register = (instance: Oger) => {
 		for (const route of def.routes) {
-			instance[route.method](route.path, route.handler);
+			const { method, path, handler, ...opts } = route;
+			(instance as any)[method](path, handler, opts);
 		}
 	};
 	if (def.prefix) child.group(def.prefix, register);

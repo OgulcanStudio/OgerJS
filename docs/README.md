@@ -2,7 +2,7 @@
 
 Guides for building, securing, deploying, and benchmarking HTTP services with OgerJS.
 
-**Release: v0.1.0** · **Bun >= 1.2.3** · Node.js 18+ via `@ogerjs/compat`
+**Release: v0.2.0** · **Bun >= 1.2.3** · Node.js 18+ via `@ogerjs/compat`
 
 > **Package scope:** This release ships **29** `@ogerjs/*` workspace packages. Guides that mention packages such as `@ogerjs/openapi`, `@ogerjs/metrics`, or `@ogerjs/jobs` describe the [roadmap](./ENTERPRISE_ROADMAP.md) unless marked as shipped in [OVERVIEW.md](./OVERVIEW.md).
 
@@ -11,7 +11,7 @@ Guides for building, securing, deploying, and benchmarking HTTP services with Og
 | Guide | Audience | Contents |
 |-------|----------|----------|
 | [GETTING_STARTED.md](./GETTING_STARTED.md) | All developers | Install, first app, plugins, testing |
-| [OVERVIEW.md](./OVERVIEW.md) | Architects | Monorepo layout, **v0.1.0 package map** |
+| [OVERVIEW.md](./OVERVIEW.md) | Architects | Monorepo layout, **v0.2.0 package map** |
 | [CORE.md](./CORE.md) | Backend engineers | `Oger` class, context, lifecycle, DI |
 | [ROUTING.md](./ROUTING.md) | API developers | Verbs, groups, guards, macros |
 | [VALIDATION.md](./VALIDATION.md) | API developers | `t` schemas, inference, 422 errors |
@@ -36,7 +36,7 @@ Guides for building, securing, deploying, and benchmarking HTTP services with Og
 | [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) | Health, events, static files, compat, scaffolding |
 | [COMPATIBILITY.md](./COMPATIBILITY.md) | Cross-runtime SQLite, crypto, compression |
 | [CONTENT_SERIALIZATION.md](./CONTENT_SERIALIZATION.md) | JSON, streams, compression |
-| [OPENAPI.md](./OPENAPI.md) | Route registry export (v0.1.0); full OpenAPI UI on roadmap |
+| [OPENAPI.md](./OPENAPI.md) | Route registry export (v0.2.0); full OpenAPI UI on roadmap |
 | [DI_MODULES.md](./DI_MODULES.md) | Modules, controllers, scoped DI |
 
 ## Reference applications

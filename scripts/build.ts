@@ -40,11 +40,22 @@ async function buildPackage(dirName: string) {
 	console.log(`Building package: ${pkg.name}...`);
 
 	const isCli = dirName === "create-oger";
+	const isCompat = dirName === "compat";
 	const entrypoints = [join(pkgDir, "src/index.ts")];
 	if (isCli) {
 		entrypoints.push(join(pkgDir, "src/cli.ts"));
 		entrypoints.push(join(pkgDir, "src/doctor.ts"));
+	} else if (isCompat) {
+		entrypoints.push(join(pkgDir, "src/register.ts"));
+		entrypoints.push(join(pkgDir, "src/loader.ts"));
+		entrypoints.push(join(pkgDir, "src/bun-shim.ts"));
+		entrypoints.push(join(pkgDir, "src/sqlite.ts"));
+		entrypoints.push(join(pkgDir, "src/jsc.ts"));
+		entrypoints.push(join(pkgDir, "src/ffi.ts"));
+		entrypoints.push(join(pkgDir, "src/test-shim.ts"));
+		entrypoints.push(join(pkgDir, "src/node-sqlite-shim.ts"));
 	}
+
 
 	// 1. Compile JS bundle using Bun.build
 	const externals = [
@@ -53,18 +64,20 @@ async function buildPackage(dirName: string) {
 		...(pkg.devDependencies ? Object.keys(pkg.devDependencies) : []),
 	];
 
-	const result = await Bun.build({
-		entrypoints,
-		outdir: join(pkgDir, "dist"),
-		target: isCli ? "node" : "bun",
-		format: "esm",
-		external: externals,
-		sourcemap: "none",
-	});
+	for (const entrypoint of entrypoints) {
+		const result = await Bun.build({
+			entrypoints: [entrypoint],
+			outdir: join(pkgDir, "dist"),
+			target: isCli ? "node" : "bun",
+			format: "esm",
+			external: externals,
+			sourcemap: "none",
+		});
 
-	if (!result.success) {
-		console.error(`Error building ${pkg.name}:`, result.logs);
-		throw new Error(`Bun.build failed for ${pkg.name}`);
+		if (!result.success) {
+			console.error(`Error building ${pkg.name} (${entrypoint}):`, result.logs);
+			throw new Error(`Bun.build failed for ${pkg.name}`);
+		}
 	}
 
 	// 2. Generate TS declaration files (.d.ts) using tsc

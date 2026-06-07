@@ -44,11 +44,11 @@ export async function runOgerDoctor(
 		}
 	}
 
-	if (!deps["@ogerjs/core"]) {
+	if (!deps["@ogerjs/core"] && !deps["ogerjs"]) {
 		issues.push({
 			level: "warn",
 			code: "missing-core",
-			message: "Add @ogerjs/core dependency",
+			message: "Add ogerjs or @ogerjs/core dependency",
 		});
 	}
 

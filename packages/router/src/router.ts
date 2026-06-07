@@ -84,8 +84,10 @@ export class Router<T> {
 	private staticRoutes: Record<string, Record<string, T>> = Object.create(null);
 	root = new TrieNode<T>();
 	private hasDynamic = false;
+	private cache = new Map<string, { handler: T; params: Record<string, string> } | null>();
 
 	add(method: string, path: string, handler: T) {
+		this.cache.clear();
 		const normPath = normalizePath(path);
 		const isDynamic = normPath.includes(":") || normPath.includes("*");
 
@@ -146,12 +148,18 @@ export class Router<T> {
 		method: string,
 		path: string,
 	): { handler: T; params: Record<string, string> } | null {
+		const cacheKey = `${method}:${path}`;
+		const cached = this.cache.get(cacheKey);
+		if (cached !== undefined) return cached;
+
 		// 1. Fast static lookup for exact matches (bypasses casing/normalization checks)
 		const methodMap = this.staticRoutes[method];
 		if (methodMap) {
 			const staticHandler = methodMap[path];
 			if (staticHandler) {
-				return { handler: staticHandler, params: EMPTY_PARAMS };
+				const result = { handler: staticHandler, params: EMPTY_PARAMS };
+				if (this.cache.size < 2000) this.cache.set(cacheKey, result);
+				return result;
 			}
 		}
 
@@ -166,7 +174,9 @@ export class Router<T> {
 			staticHandler = this.staticRoutes["ALL"]?.[path];
 		}
 		if (staticHandler) {
-			return { handler: staticHandler, params: EMPTY_PARAMS };
+			const result = { handler: staticHandler, params: EMPTY_PARAMS };
+			if (this.cache.size < 2000) this.cache.set(cacheKey, result);
+			return result;
 		}
 
 		const normPath = normalizePath(path);
@@ -177,11 +187,16 @@ export class Router<T> {
 				staticHandler = this.staticRoutes["ALL"]?.[normPath];
 			}
 			if (staticHandler) {
-				return { handler: staticHandler, params: EMPTY_PARAMS };
+				const result = { handler: staticHandler, params: EMPTY_PARAMS };
+				if (this.cache.size < 2000) this.cache.set(cacheKey, result);
+				return result;
 			}
 		}
 
-		if (!this.hasDynamic) return null;
+		if (!this.hasDynamic) {
+			if (this.cache.size < 2000) this.cache.set(cacheKey, null);
+			return null;
+		}
 
 		// 2. Trie lookup for dynamic routes
 		let start = 0;
@@ -196,9 +211,12 @@ export class Router<T> {
 			for (let i = 0; i < sharedParamValues.length; i += 2) {
 				params[sharedParamValues[i]] = sharedParamValues[i + 1];
 			}
-			return { handler, params };
+			const result = { handler, params };
+			if (this.cache.size < 2000) this.cache.set(cacheKey, result);
+			return result;
 		}
 
+		if (this.cache.size < 2000) this.cache.set(cacheKey, null);
 		return null;
 	}
 
